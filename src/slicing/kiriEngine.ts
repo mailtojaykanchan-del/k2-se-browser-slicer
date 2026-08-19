@@ -1,14 +1,16 @@
 import { K2_SE_PROFILE } from "../../shared/profile";
 import type { PrintSettings } from "../../shared/settings";
 
-const KIRI_ENGINE_URL = new URL(
-  "./kiri/engine.js",
-  document.baseURI,
-).href;
-const KIRI_WORKER_URL = new URL(
-  "./kiri/worker.js",
-  document.baseURI,
-).href;
+const KIRI_ASSET_VERSION = "20260819-1";
+
+function versionedAssetUrl(path: string): string {
+  const url = new URL(path, document.baseURI);
+  url.searchParams.set("v", KIRI_ASSET_VERSION);
+  return url.href;
+}
+
+const KIRI_ENGINE_URL = versionedAssetUrl("./kiri/engine.js");
+const KIRI_WORKER_URL = versionedAssetUrl("./kiri/worker.js");
 
 interface KiriEngine {
   export(): Promise<string>;
