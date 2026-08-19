@@ -2,6 +2,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  // Relative assets allow the static build to run from a GitHub Pages project path.
+  base: "./",
   plugins: [react()],
   server: {
     port: 5173,

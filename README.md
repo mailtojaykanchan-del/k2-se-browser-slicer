@@ -43,6 +43,10 @@ The production Node server only serves the built web app. Browser slicing does n
 
 The browser engine makes the main app deployable as a static site. Build with `pnpm build`, then publish the `dist` directory to Cloudflare Pages, Netlify, Vercel, or another static host. This project also includes a Sites deployment build through `pnpm build:site`.
 
+### GitHub Pages
+
+The repository includes `.github/workflows/deploy-pages.yml`. For a public GitHub repository, open **Settings > Pages**, set the source to **GitHub Actions**, and run the workflow. Future pushes to `main` publish automatically. The Vite build uses relative URLs so the slicer engine, worker, and WebAssembly files work from a GitHub Pages project address.
+
 Docker is also supported:
 
 ```bash
