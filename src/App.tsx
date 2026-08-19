@@ -1,0 +1,674 @@
+import {
+  Box,
+  Boxes,
+  CheckCircle2,
+  CircleHelp,
+  Copy,
+  Crosshair,
+  Download,
+  FileUp,
+  Grid3X3,
+  LoaderCircle,
+  Move3D,
+  MousePointer2,
+  Scan,
+  Rotate3D,
+  Ruler,
+  Scale3D,
+  Scissors,
+  Sparkles,
+  Trash2,
+  Undo2,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { LayerPreview, type LayerPreviewLayer } from "./components/LayerPreview";
+import { formatDuration, formatGrams, formatMetersFromMm, formatMm } from "./lib/format";
+import { type ModelSnapshot, type TransformMode, SlicerScene } from "./scene/SlicerScene";
+import { sliceInBrowser } from "./slicing/kiriEngine";
+import { K2_SE_PROFILE } from "../shared/profile";
+import { parseGcode } from "../shared/gcodeParser";
+import {
+  DEFAULT_PRINT_SETTINGS,
+  type AdhesionMode,
+  type InfillPattern,
+  type PrintSettings,
+  normalizePrintSettings,
+  validatePrintSettings,
+} from "../shared/settings";
+
+interface SliceSummary {
+  layerCount: number;
+  filamentMm: number;
+  filamentCm3: number;
+  filamentG: number;
+  estimatedSeconds: number;
+  timeSource: "slicer-comment" | "motion-estimate";
+  totalExtrusionSegments: number;
+  sampled: boolean;
+  layers: LayerPreviewLayer[];
+}
+
+interface SliceResult {
+  downloadUrl: string;
+  filename: string;
+  engine: {
+    name: string | null;
+    version: string | null;
+  };
+  summary: SliceSummary;
+  log: string;
+}
+
+const numberFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+
+function plateSignature(models: ModelSnapshot[]): string {
+  return JSON.stringify(
+    models
+      .map(({ id, dimensions, position, rotation, scale }) => ({ id, dimensions, position, rotation, scale }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  );
+}
+
+function App() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sceneRef = useRef<SlicerScene | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [models, setModels] = useState<ModelSnapshot[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mode, setMode] = useState<TransformMode>("translate");
+  const [settings, setSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
+  const [busyMessage, setBusyMessage] = useState<string | null>(null);
+  const [sliceResult, setSliceResult] = useState<SliceResult | null>(null);
+  const [sliceError, setSliceError] = useState<string | null>(null);
+  const [activeLayer, setActiveLayer] = useState(0);
+  const downloadUrlRef = useRef<string | null>(null);
+  const resultRef = useRef<HTMLDivElement | null>(null);
+  const plateSignatureRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || sceneRef.current) return;
+    const scene = new SlicerScene(
+      canvasRef.current,
+      (nextModels, nextSelectedId) => {
+        const nextSignature = plateSignature(nextModels);
+        if (plateSignatureRef.current !== null && plateSignatureRef.current !== nextSignature) {
+          invalidateSliceResult();
+        }
+        plateSignatureRef.current = nextSignature;
+        setModels(nextModels);
+        setSelectedId(nextSelectedId);
+      },
+      setSliceError,
+    );
+    sceneRef.current = scene;
+    return () => {
+      scene.dispose();
+      sceneRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!sliceResult) return;
+    resultRef.current?.focus({ preventScroll: false });
+  }, [sliceResult]);
+
+  const selectedModel = models.find((model) => model.id === selectedId) ?? null;
+  const settingsErrors = useMemo(() => validatePrintSettings(settings), [settings]);
+  const boundaryErrors = models.flatMap((model) =>
+    model.warnings
+      .filter((warning) => warning.includes("Outside") || warning.includes("Exceeds") || warning.includes("Below"))
+      .map((warning) => `${model.name}: ${warning}`),
+  );
+  const canSlice = models.length > 0 && settingsErrors.length === 0 && boundaryErrors.length === 0 && !busyMessage;
+
+  const roughEstimate = useMemo(() => {
+    const maxZ = Math.max(0, ...models.map((model) => model.dimensions.z));
+    const totalFootprint = models.reduce((sum, model) => sum + model.dimensions.x * model.dimensions.y, 0);
+    const layers = Math.ceil(maxZ / settings.layerHeight);
+    const sparseVolume = totalFootprint * Math.max(maxZ, 1) * (0.08 + settings.infillDensity / 100);
+    const filamentArea = Math.PI * (settings.filamentDiameter / 2) ** 2;
+    const filamentMm = sparseVolume / filamentArea;
+    const seconds = (sparseVolume / 18) * (180 / Math.max(settings.speeds.infill, 1));
+    return {
+      layers: Number.isFinite(layers) ? layers : 0,
+      filamentMm: Math.max(0, filamentMm),
+      seconds: Math.max(0, seconds),
+    };
+  }, [models, settings]);
+
+  async function handleFiles(fileList: FileList | null) {
+    if (!fileList?.length || !sceneRef.current) return;
+    invalidateSliceResult();
+    setSliceError(null);
+
+    for (const file of [...fileList]) {
+      try {
+        setBusyMessage(`Loading model: ${file.name}`);
+        await sceneRef.current.loadFile(file);
+        setSliceError(null);
+      } catch (error) {
+        setSliceError(error instanceof Error ? error.message : "Could not load model.");
+      } finally {
+        setBusyMessage(null);
+      }
+    }
+  }
+
+  function invalidateSliceResult() {
+    if (downloadUrlRef.current) {
+      URL.revokeObjectURL(downloadUrlRef.current);
+      downloadUrlRef.current = null;
+    }
+    setSliceResult(null);
+    setActiveLayer(0);
+  }
+
+  function updateMode(nextMode: TransformMode) {
+    setMode(nextMode);
+    sceneRef.current?.setMode(nextMode);
+  }
+
+  function patchSettings(patch: Partial<PrintSettings>) {
+    invalidateSliceResult();
+    setSettings((current) => normalizePrintSettings({ ...current, ...patch }));
+  }
+
+  function patchSpeeds(patch: Partial<PrintSettings["speeds"]>) {
+    invalidateSliceResult();
+    setSettings((current) => normalizePrintSettings({ ...current, speeds: { ...current.speeds, ...patch } }));
+  }
+
+  function updateTransform(
+    group: "position" | "rotationDeg" | "scale",
+    axis: "x" | "y" | "z",
+    value: number,
+  ) {
+    invalidateSliceResult();
+    sceneRef.current?.updateSelectedTransform({ [group]: { [axis]: value } });
+  }
+
+  async function slicePlate() {
+    if (!sceneRef.current || !canSlice) return;
+    setBusyMessage("Loading browser slicer");
+    setSliceError(null);
+    setSliceResult(null);
+    setActiveLayer(0);
+
+    try {
+      const plateBlob = sceneRef.current.exportPlateAsStlBlob();
+      const output = await sliceInBrowser(plateBlob, settings, setBusyMessage);
+      const summary = parseGcode(output.gcode, settings);
+      const filename = `k2-se-${new Date().toISOString().replace(/[:.]/g, "-")}.gcode`;
+
+      if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
+      const downloadUrl = URL.createObjectURL(new Blob([output.gcode], { type: "text/x-gcode" }));
+      downloadUrlRef.current = downloadUrl;
+
+      const payload: SliceResult = {
+        downloadUrl,
+        filename,
+        engine: { name: output.engineName, version: null },
+        summary,
+        log: "",
+      };
+      setSliceResult(payload);
+      setActiveLayer(Math.max(0, Math.min(payload.summary.layers.length - 1, 0)));
+    } catch (error) {
+      setSliceError(error instanceof Error ? error.message : "Slicing failed.");
+    } finally {
+      setBusyMessage(null);
+    }
+  }
+
+  return (
+    <main className="appShell">
+      <header className="topBar">
+        <div className="brandBlock">
+          <div className="brandMark">
+            <Scissors size={20} />
+          </div>
+          <div>
+            <h1>K2 SE Browser Slicer</h1>
+            <p>Single-filament PLA profile for {K2_SE_PROFILE.buildVolume.x} x {K2_SE_PROFILE.buildVolume.y} x {K2_SE_PROFILE.buildVolume.z} mm</p>
+          </div>
+        </div>
+
+        <div className="topActions">
+          <span className={`enginePill ${sliceResult ? "ok" : "warn"}`} role="status" aria-live="polite">
+            {busyMessage && !busyMessage.startsWith("Loading model:")
+              ? "Slicing..."
+              : sliceResult
+                ? "Slice complete"
+                : models.length > 0
+                  ? "Ready to slice"
+                  : "No model loaded"}
+          </span>
+          <button className="primaryButton" type="button" onClick={() => fileInputRef.current?.click()}>
+            <FileUp size={18} />
+            Upload STL / 3MF
+          </button>
+          <input
+            ref={fileInputRef}
+            className="hiddenInput"
+            type="file"
+            accept=".stl,.3mf,model/stl"
+            multiple
+            onChange={(event) => void handleFiles(event.target.files)}
+          />
+        </div>
+      </header>
+
+      <section className="workspace">
+        <aside className="panel modelPanel">
+          <DropZone onFiles={handleFiles} busy={busyMessage?.startsWith("Loading model:") ? busyMessage : null} />
+
+          <section className="panelSection">
+            <div className="sectionTitle">
+              <Boxes size={16} />
+              <h2>Models</h2>
+              <span>{models.length}</span>
+            </div>
+            <div className="modelList">
+              {models.length === 0 ? (
+                <div className="emptyState">Upload an STL first. 3MF files are accepted when their geometry can be read in the browser.</div>
+              ) : (
+                models.map((model) => (
+                  <button
+                    key={model.id}
+                    className={`modelRow ${model.selected ? "active" : ""} ${model.valid ? "" : "invalid"}`}
+                    type="button"
+                    onClick={() => sceneRef.current?.selectModel(model.id)}
+                  >
+                    <span className="colorSwatch" style={{ background: model.color }} />
+                    <span>
+                      <strong>{model.name}</strong>
+                      <small>
+                        {formatMm(model.dimensions.x)} x {formatMm(model.dimensions.y)} x {formatMm(model.dimensions.z)}
+                      </small>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="panelSection">
+            <div className="sectionTitle">
+              <Ruler size={16} />
+              <h2>Object</h2>
+            </div>
+            {selectedModel ? (
+              <div className="transformGrid">
+                <Metric label="Size X" value={formatMm(selectedModel.dimensions.x)} />
+                <Metric label="Size Y" value={formatMm(selectedModel.dimensions.y)} />
+                <Metric label="Size Z" value={formatMm(selectedModel.dimensions.z)} />
+                <NumberField label="Move X" value={selectedModel.position.x} step={1} onChange={(value) => updateTransform("position", "x", value)} />
+                <NumberField label="Move Y" value={selectedModel.position.y} step={1} onChange={(value) => updateTransform("position", "y", value)} />
+                <NumberField label="Move Z" value={selectedModel.position.z} step={1} onChange={(value) => updateTransform("position", "z", value)} />
+                <NumberField label="Rot X" value={selectedModel.rotation.x} step={5} onChange={(value) => updateTransform("rotationDeg", "x", value)} />
+                <NumberField label="Rot Y" value={selectedModel.rotation.y} step={5} onChange={(value) => updateTransform("rotationDeg", "y", value)} />
+                <NumberField label="Rot Z" value={selectedModel.rotation.z} step={5} onChange={(value) => updateTransform("rotationDeg", "z", value)} />
+                <NumberField label="Scale X" value={selectedModel.scale.x} step={0.05} onChange={(value) => updateTransform("scale", "x", value)} />
+                <NumberField label="Scale Y" value={selectedModel.scale.y} step={0.05} onChange={(value) => updateTransform("scale", "y", value)} />
+                <NumberField label="Scale Z" value={selectedModel.scale.z} step={0.05} onChange={(value) => updateTransform("scale", "z", value)} />
+              </div>
+            ) : (
+              <div className="emptyState">Select a model to edit dimensions and transforms.</div>
+            )}
+          </section>
+        </aside>
+
+        <section className="viewerPanel">
+          <div className="viewerToolbar" aria-label="Model tools">
+            <IconButton active={mode === "translate"} label="Move" onClick={() => updateMode("translate")}>
+              <Move3D size={18} />
+            </IconButton>
+            <IconButton active={mode === "rotate"} label="Rotate" onClick={() => updateMode("rotate")}>
+              <Rotate3D size={18} />
+            </IconButton>
+            <IconButton active={mode === "scale"} label="Scale" onClick={() => updateMode("scale")}>
+              <Scale3D size={18} />
+            </IconButton>
+            <span className="toolbarDivider" />
+            <IconButton label="Center" disabled={!selectedModel} onClick={() => sceneRef.current?.centerSelected()}>
+              <Crosshair size={18} />
+            </IconButton>
+            <IconButton label="Fit view" disabled={!selectedModel} onClick={() => sceneRef.current?.focusSelected()}>
+              <Scan size={18} />
+            </IconButton>
+            <IconButton label="Lay flat" disabled={!selectedModel} onClick={() => sceneRef.current?.layFlatSelected()}>
+              <Box size={18} />
+            </IconButton>
+            <IconButton label="Reset" disabled={!selectedModel} onClick={() => sceneRef.current?.resetSelected()}>
+              <Undo2 size={18} />
+            </IconButton>
+            <IconButton label="Duplicate" disabled={!selectedModel} onClick={() => sceneRef.current?.duplicateSelected()}>
+              <Copy size={18} />
+            </IconButton>
+            <IconButton label="Delete" disabled={!selectedModel} onClick={() => sceneRef.current?.deleteSelected()}>
+              <Trash2 size={18} />
+            </IconButton>
+            <IconButton label="Auto arrange" disabled={models.length === 0} onClick={() => sceneRef.current?.autoArrange()}>
+              <Grid3X3 size={18} />
+            </IconButton>
+          </div>
+
+          <div className="canvasFrame">
+            <canvas ref={canvasRef} />
+            {sliceError && <div className="viewerError" role="alert">{sliceError}</div>}
+            {models.length === 0 && (
+              <button className="canvasEmpty" type="button" onClick={() => fileInputRef.current?.click()}>
+                <MousePointer2 size={24} />
+                <span>Upload STL / 3MF to place a model on the K2 SE plate</span>
+              </button>
+            )}
+            {busyMessage && (
+              <div className="busyOverlay">
+                <LoaderCircle size={22} />
+                {busyMessage}
+              </div>
+            )}
+          </div>
+
+          <div className="statusStrip">
+            <Metric label="Plate" value={`${K2_SE_PROFILE.buildVolume.x} x ${K2_SE_PROFILE.buildVolume.y} mm`} />
+            <Metric label="Height" value={`${K2_SE_PROFILE.buildVolume.z} mm`} />
+            <Metric label="Mode" value={mode} />
+            <Metric label="Profile" value="PLA, single filament" />
+          </div>
+        </section>
+
+        <aside className="panel settingsPanel">
+          <section className="panelSection">
+            <div className="sectionTitle">
+              <Sparkles size={16} />
+              <h2>PLA Settings</h2>
+            </div>
+
+            <details open>
+              <summary>Quality</summary>
+              <div className="fieldGrid">
+                <NumberField label="Layer height" value={settings.layerHeight} step={0.02} min={0.05} max={0.35} onChange={(layerHeight) => patchSettings({ layerHeight })} />
+                <NumberField label="Walls" value={settings.walls} step={1} min={1} max={8} onChange={(walls) => patchSettings({ walls })} />
+                <NumberField label="Top layers" value={settings.topLayers} step={1} min={0} max={12} onChange={(topLayers) => patchSettings({ topLayers })} />
+                <NumberField label="Bottom layers" value={settings.bottomLayers} step={1} min={0} max={12} onChange={(bottomLayers) => patchSettings({ bottomLayers })} />
+              </div>
+            </details>
+
+            <details open>
+              <summary>Infill and supports</summary>
+              <div className="fieldGrid">
+                <NumberField label="Infill" value={settings.infillDensity} suffix="%" step={5} min={0} max={100} onChange={(infillDensity) => patchSettings({ infillDensity })} />
+                <label className="field">
+                  <span>Pattern</span>
+                  <select value={settings.infillPattern} onChange={(event) => patchSettings({ infillPattern: event.target.value as InfillPattern })}>
+                    <option value="gyroid">Gyroid</option>
+                    <option value="grid">Grid</option>
+                    <option value="cubic">Cubic</option>
+                    <option value="rectilinear">Rectilinear</option>
+                    <option value="honeycomb">Honeycomb</option>
+                  </select>
+                </label>
+                <label className="toggleField">
+                  <input type="checkbox" checked={settings.supports} onChange={(event) => patchSettings({ supports: event.target.checked })} />
+                  <span>Supports</span>
+                </label>
+                <NumberField label="Overhang" value={settings.supportOverhang} suffix="deg" step={5} min={0} max={90} onChange={(supportOverhang) => patchSettings({ supportOverhang })} />
+              </div>
+            </details>
+
+            <details>
+              <summary>Adhesion</summary>
+              <div className="segmented">
+                {(["none", "skirt", "brim"] as AdhesionMode[]).map((adhesion) => (
+                  <button
+                    key={adhesion}
+                    type="button"
+                    className={settings.adhesion === adhesion ? "selected" : ""}
+                    onClick={() => patchSettings({ adhesion })}
+                  >
+                    {adhesion}
+                  </button>
+                ))}
+              </div>
+              <div className="fieldGrid">
+                <NumberField label="Brim width" value={settings.brimWidth} suffix="mm" step={1} min={0} max={20} onChange={(brimWidth) => patchSettings({ brimWidth })} />
+                <NumberField label="Skirt loops" value={settings.skirtLoops} step={1} min={0} max={10} onChange={(skirtLoops) => patchSettings({ skirtLoops })} />
+              </div>
+            </details>
+
+            <details open>
+              <summary>Temperatures</summary>
+              <div className="fieldGrid">
+                <NumberField label="Nozzle" value={settings.nozzleTemp} suffix="C" step={5} min={150} max={300} onChange={(nozzleTemp) => patchSettings({ nozzleTemp })} />
+                <NumberField label="First nozzle" value={settings.firstLayerNozzleTemp} suffix="C" step={5} min={150} max={300} onChange={(firstLayerNozzleTemp) => patchSettings({ firstLayerNozzleTemp })} />
+                <NumberField label="Bed" value={settings.bedTemp} suffix="C" step={5} min={0} max={100} onChange={(bedTemp) => patchSettings({ bedTemp })} />
+                <NumberField label="First bed" value={settings.firstLayerBedTemp} suffix="C" step={5} min={0} max={100} onChange={(firstLayerBedTemp) => patchSettings({ firstLayerBedTemp })} />
+              </div>
+            </details>
+
+            <details>
+              <summary>Speeds</summary>
+              <div className="fieldGrid">
+                <NumberField label="First layer" value={settings.speeds.firstLayer} suffix="mm/s" step={5} min={5} max={150} onChange={(firstLayer) => patchSpeeds({ firstLayer })} />
+                <NumberField label="Outer wall" value={settings.speeds.outerWall} suffix="mm/s" step={5} min={10} max={500} onChange={(outerWall) => patchSpeeds({ outerWall })} />
+                <NumberField label="Inner wall" value={settings.speeds.innerWall} suffix="mm/s" step={5} min={10} max={500} onChange={(innerWall) => patchSpeeds({ innerWall })} />
+                <NumberField label="Infill" value={settings.speeds.infill} suffix="mm/s" step={5} min={10} max={500} onChange={(infill) => patchSpeeds({ infill })} />
+                <NumberField label="Support" value={settings.speeds.support} suffix="mm/s" step={5} min={10} max={500} onChange={(support) => patchSpeeds({ support })} />
+                <NumberField label="Travel" value={settings.speeds.travel} suffix="mm/s" step={10} min={20} max={600} onChange={(travel) => patchSpeeds({ travel })} />
+              </div>
+            </details>
+
+            <details>
+              <summary>Filament and nozzle</summary>
+              <div className="fieldGrid">
+                <NumberField label="Filament dia." value={settings.filamentDiameter} suffix="mm" step={0.01} min={1} max={3} onChange={(filamentDiameter) => patchSettings({ filamentDiameter })} />
+                <NumberField label="Nozzle dia." value={settings.nozzleDiameter} suffix="mm" step={0.05} min={0.2} max={1.2} onChange={(nozzleDiameter) => patchSettings({ nozzleDiameter })} />
+                <NumberField label="Flow" value={settings.flowRatio} step={0.01} min={0.5} max={1.5} onChange={(flowRatio) => patchSettings({ flowRatio })} />
+              </div>
+            </details>
+          </section>
+
+          <section className="panelSection">
+            <div className="sectionTitle">
+              <CircleHelp size={16} />
+              <h2>Validation</h2>
+            </div>
+            <ValidationList items={[...settingsErrors, ...boundaryErrors, ...models.flatMap((model) => model.warnings.filter((warning) => warning.includes("Floating")).map((warning) => `${model.name}: ${warning}`))]} />
+          </section>
+
+          <section className="panelSection slicePanel">
+            <div
+              className={`sliceStateBanner ${busyMessage && !busyMessage.startsWith("Loading model:") ? "running" : sliceResult ? "complete" : "pending"}`}
+              role="status"
+              aria-live="polite"
+            >
+              {busyMessage && !busyMessage.startsWith("Loading model:") ? (
+                <LoaderCircle className="spinIcon" size={22} />
+              ) : sliceResult ? (
+                <CheckCircle2 size={22} />
+              ) : (
+                <CircleHelp size={22} />
+              )}
+              <span>
+                <strong>
+                  {busyMessage && !busyMessage.startsWith("Loading model:")
+                    ? "Slicing in progress"
+                    : sliceResult
+                      ? "Slice complete"
+                      : "Not sliced yet"}
+                </strong>
+                <small>
+                  {busyMessage && !busyMessage.startsWith("Loading model:")
+                    ? busyMessage
+                    : sliceResult
+                      ? `${numberFormatter.format(sliceResult.summary.layerCount)} layers generated. G-code is ready.`
+                      : models.length > 0
+                        ? "The current plate still needs to be sliced."
+                        : "Upload a model before slicing."}
+                </small>
+              </span>
+            </div>
+            <button className="sliceButton" type="button" disabled={!canSlice} onClick={() => void slicePlate()}>
+              {busyMessage && !busyMessage.startsWith("Loading model:") ? <LoaderCircle className="spinIcon" size={18} /> : <Scissors size={18} />}
+              {busyMessage && !busyMessage.startsWith("Loading model:") ? "Slicing..." : sliceResult ? "Slice again" : "Slice"}
+            </button>
+            <p className="inlineNotice">Slicing runs privately in this browser. No slicer installation or model upload is required.</p>
+            {sliceError && <p className="errorNotice">{sliceError}</p>}
+
+            <div className="estimateGrid">
+              <Metric label="Pre-slice layers" value={roughEstimate.layers ? numberFormatter.format(roughEstimate.layers) : "n/a"} />
+              <Metric label="Pre-slice filament" value={roughEstimate.filamentMm ? formatMetersFromMm(roughEstimate.filamentMm) : "n/a"} />
+              <Metric label="Pre-slice time" value={roughEstimate.seconds ? formatDuration(roughEstimate.seconds) : "n/a"} />
+            </div>
+
+            {sliceResult && (
+              <div ref={resultRef} className="resultBox" role="region" aria-label="Slice complete" tabIndex={-1}>
+                <div className="resultHeader">
+                  <span className="resultTitle">
+                    <CheckCircle2 size={20} />
+                    <strong>G-code ready</strong>
+                  </span>
+                  <a className="downloadButton" href={sliceResult.downloadUrl} download={sliceResult.filename}>
+                    <Download size={16} />
+                    Download G-code
+                  </a>
+                </div>
+                <div className="estimateGrid">
+                  <Metric label="Layers" value={numberFormatter.format(sliceResult.summary.layerCount)} />
+                  <Metric label="Filament" value={formatMetersFromMm(sliceResult.summary.filamentMm)} />
+                  <Metric label="PLA" value={formatGrams(sliceResult.summary.filamentG)} />
+                  <Metric label="Time" value={formatDuration(sliceResult.summary.estimatedSeconds)} />
+                </div>
+                {sliceResult.summary.layers.length > 0 && (
+                  <div className="layerPreviewBlock">
+                    <div className="layerHeader">
+                      <span>Layer {activeLayer + 1} / {sliceResult.summary.layers.length}</span>
+                      <span>Z {sliceResult.summary.layers[activeLayer]?.z.toFixed(2)} mm</span>
+                    </div>
+                    <input
+                      className="layerSlider"
+                      type="range"
+                      min={0}
+                      max={Math.max(0, sliceResult.summary.layers.length - 1)}
+                      value={activeLayer}
+                      onChange={(event) => setActiveLayer(Number(event.target.value))}
+                    />
+                    <LayerPreview layers={sliceResult.summary.layers} activeLayer={activeLayer} />
+                    {sliceResult.summary.sampled && <p className="inlineNotice">Toolpaths were downsampled for browser responsiveness.</p>}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+interface DropZoneProps {
+  busy: string | null;
+  onFiles: (files: FileList | null) => void | Promise<void>;
+}
+
+function DropZone({ busy, onFiles }: DropZoneProps) {
+  const [dragging, setDragging] = useState(false);
+
+  return (
+    <button
+      className={`dropZone ${dragging ? "dragging" : ""}`}
+      type="button"
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        void onFiles(event.dataTransfer.files);
+      }}
+      onClick={() => document.querySelector<HTMLInputElement>('input[type="file"]')?.click()}
+    >
+      <FileUp size={28} />
+      <strong>{busy ?? "Upload STL first"}</strong>
+      <span>STL primary, 3MF when geometry is readable</span>
+    </button>
+  );
+}
+
+interface IconButtonProps {
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+
+function IconButton({ label, active, disabled, onClick, children }: IconButtonProps) {
+  return (
+    <button className={`iconButton ${active ? "active" : ""}`} type="button" disabled={disabled} onClick={onClick} title={label} aria-label={label}>
+      {children}
+    </button>
+  );
+}
+
+interface NumberFieldProps {
+  label: string;
+  value: number;
+  step: number;
+  min?: number;
+  max?: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}
+
+function NumberField({ label, value, step, min, max, suffix, onChange }: NumberFieldProps) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <div className="numberShell">
+        <input
+          type="number"
+          value={Number.isFinite(value) ? value : 0}
+          step={step}
+          min={min}
+          max={max}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+        {suffix && <em>{suffix}</em>}
+      </div>
+    </label>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ValidationList({ items }: { items: string[] }) {
+  if (items.length === 0) {
+    return <div className="validBox">Ready for the K2 SE build volume.</div>;
+  }
+
+  return (
+    <ul className="validationList">
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+export default App;
