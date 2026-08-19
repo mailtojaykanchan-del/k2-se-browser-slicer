@@ -2,6 +2,8 @@
 
 A local-first slicer for the Creality K2 SE. Upload an STL or 3MF, arrange it on the printer plate, choose PLA settings, slice, inspect the layers, and download G-code without installing a desktop slicer.
 
+**Use it online:** [mailtojaykanchan-del.github.io/k2-se-browser-slicer](https://mailtojaykanchan-del.github.io/k2-se-browser-slicer/)
+
 Real slicing is performed in the browser by the open-source Kiri:Moto engine. Model data stays in the browser and is not uploaded to a slicing service. The engine, worker, and WebAssembly helper are bundled with this project, so slicing has no runtime dependency on Grid.Space or another remote service.
 
 ## K2 SE Profile
