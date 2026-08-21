@@ -35,6 +35,18 @@ export interface BrowserSliceOutput {
   gcode: string;
 }
 
+export type BrowserSliceStage = "loading" | "geometry" | "slicing" | "toolpaths" | "gcode";
+
+export interface BrowserSliceProgress {
+  stage: BrowserSliceStage;
+  message: string;
+  percent: number;
+  updatedAt: number;
+}
+
+const SLICE_STALL_TIMEOUT_MS = 2 * 60 * 1000;
+const PROGRESS_NOTIFY_INTERVAL_MS = 2 * 1000;
+
 let engineLoader: Promise<KiriEngineConstructor> | null = null;
 
 function loadEngine(): Promise<KiriEngineConstructor> {
@@ -197,51 +209,129 @@ function buildProcess(settings: PrintSettings): Record<string, unknown> {
   };
 }
 
-function progressMessage(event: unknown): string | null {
-  if (!event || typeof event !== "object") return null;
-  const message = event as Record<string, unknown>;
-  if ("export" in message) return "Writing G-code in browser";
-  if ("prepare" in message) return "Building print toolpaths";
-  if ("slice" in message) return "Slicing model in browser";
-  if ("parsed" in message || "loaded" in message) return "Preparing model geometry";
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function fraction(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(1, value));
+}
+
+function progressFromEvent(event: unknown): Omit<BrowserSliceProgress, "updatedAt"> | null {
+  const message = asRecord(event);
+  if (!message) return null;
+
+  if ("slice" in message) {
+    const payload = asRecord(message.slice);
+    const stageProgress = fraction(payload?.progress ?? payload?.update);
+    if (stageProgress === null) return null;
+    return {
+      stage: "slicing",
+      message: "Slicing model layers",
+      percent: 12 + stageProgress * 60,
+    };
+  }
+
+  if ("prepare" in message) {
+    const payload = asRecord(message.prepare);
+    const stageProgress = fraction(payload?.update);
+    if (stageProgress === null) return null;
+    return {
+      stage: "toolpaths",
+      message: "Building walls, infill, and supports",
+      percent: 74 + stageProgress * 18,
+    };
+  }
+
+  if ("export" in message) {
+    return { stage: "gcode", message: "Writing G-code", percent: 95 };
+  }
+
+  if ("parsed" in message || "loaded" in message) {
+    return { stage: "geometry", message: "Preparing model geometry", percent: 9 };
+  }
+
   return null;
 }
 
 export async function sliceInBrowser(
   plate: Blob,
   settings: PrintSettings,
-  onProgress: (message: string) => void,
+  onProgress: (progress: BrowserSliceProgress) => void,
 ): Promise<BrowserSliceOutput> {
-  onProgress("Loading browser slicer");
-  const Engine = await loadEngine();
-  const engine = new Engine({ workURL: KIRI_WORKER_URL });
+  let active = true;
+  let lastActivityAt = Date.now();
+  let lastNotificationAt = 0;
+  let lastProgress: Omit<BrowserSliceProgress, "updatedAt"> | null = null;
 
-  engine.setRender?.(false);
-  engine.setListener((event) => {
-    const message = progressMessage(event);
-    if (message) onProgress(message);
+  const report = (progress: Omit<BrowserSliceProgress, "updatedAt">, force = false) => {
+    if (!active) return;
+    const now = Date.now();
+    lastActivityAt = now;
+    const changed = !lastProgress
+      || lastProgress.stage !== progress.stage
+      || lastProgress.message !== progress.message
+      || Math.abs(lastProgress.percent - progress.percent) >= 0.5;
+
+    if (force || changed || now - lastNotificationAt >= PROGRESS_NOTIFY_INTERVAL_MS) {
+      lastProgress = progress;
+      lastNotificationAt = now;
+      onProgress({ ...progress, updatedAt: now });
+    }
+  };
+
+  const runSlice = async (): Promise<BrowserSliceOutput> => {
+    report({ stage: "loading", message: "Loading browser slicer", percent: 2 }, true);
+    const Engine = await loadEngine();
+    const engine = new Engine({ workURL: KIRI_WORKER_URL });
+
+    engine.setRender?.(false);
+    engine.setListener((event) => {
+      const progress = progressFromEvent(event);
+      if (progress) report(progress);
+    });
+
+    report({ stage: "geometry", message: "Preparing model geometry", percent: 6 }, true);
+    await engine.parse(await plate.arrayBuffer());
+    report({ stage: "geometry", message: "Model geometry ready", percent: 10 }, true);
+    engine.setMode("FDM");
+    engine.setController?.({ threaded: false });
+    engine.setDevice(buildDevice(settings));
+    engine.setProcess(buildProcess(settings));
+
+    report({ stage: "slicing", message: "Slicing model layers", percent: 12 }, true);
+    await engine.slice();
+    report({ stage: "toolpaths", message: "Building walls, infill, and supports", percent: 74 }, true);
+    await engine.prepare();
+    report({ stage: "gcode", message: "Writing G-code", percent: 95 }, true);
+    const gcode = await engine.export();
+
+    if (typeof gcode !== "string" || !gcode.includes("G")) {
+      throw new Error("The browser engine did not produce valid G-code.");
+    }
+
+    report({ stage: "gcode", message: "G-code generated", percent: 98 }, true);
+    return {
+      engineName: "Kiri:Moto browser engine",
+      gcode,
+    };
+  };
+
+  let watchdog: number | undefined;
+  const stalled = new Promise<never>((_, reject) => {
+    watchdog = window.setInterval(() => {
+      if (Date.now() - lastActivityAt < SLICE_STALL_TIMEOUT_MS) return;
+      reject(new Error(
+        "The slicer stopped reporting progress for 2 minutes, so no G-code was created. Reload the page and try a repaired or less detailed STL.",
+      ));
+    }, 5_000);
   });
 
-  onProgress("Preparing model geometry");
-  await engine.parse(await plate.arrayBuffer());
-  engine.setMode("FDM");
-  engine.setController?.({ threaded: false });
-  engine.setDevice(buildDevice(settings));
-  engine.setProcess(buildProcess(settings));
-
-  onProgress("Slicing model in browser");
-  await engine.slice();
-  onProgress("Building print toolpaths");
-  await engine.prepare();
-  onProgress("Writing G-code in browser");
-  const gcode = await engine.export();
-
-  if (typeof gcode !== "string" || !gcode.includes("G")) {
-    throw new Error("The browser engine did not produce valid G-code.");
+  try {
+    return await Promise.race([runSlice(), stalled]);
+  } finally {
+    active = false;
+    if (watchdog !== undefined) window.clearInterval(watchdog);
   }
-
-  return {
-    engineName: "Kiri:Moto browser engine",
-    gcode,
-  };
 }

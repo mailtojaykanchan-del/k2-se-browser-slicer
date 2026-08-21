@@ -24,7 +24,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LayerPreview, type LayerPreviewLayer } from "./components/LayerPreview";
 import { formatDuration, formatGrams, formatMetersFromMm, formatMm } from "./lib/format";
 import { type ModelSnapshot, type TransformMode, SlicerScene } from "./scene/SlicerScene";
-import { sliceInBrowser } from "./slicing/kiriEngine";
+import { sliceInBrowser, type BrowserSliceProgress } from "./slicing/kiriEngine";
 import { K2_SE_PROFILE } from "../shared/profile";
 import { parseGcode } from "../shared/gcodeParser";
 import {
@@ -78,6 +78,9 @@ function App() {
   const [mode, setMode] = useState<TransformMode>("translate");
   const [settings, setSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
   const [busyMessage, setBusyMessage] = useState<string | null>(null);
+  const [sliceProgress, setSliceProgress] = useState<BrowserSliceProgress | null>(null);
+  const [sliceStartedAt, setSliceStartedAt] = useState<number | null>(null);
+  const [sliceElapsed, setSliceElapsed] = useState(0);
   const [sliceResult, setSliceResult] = useState<SliceResult | null>(null);
   const [sliceError, setSliceError] = useState<string | null>(null);
   const [activeLayer, setActiveLayer] = useState(0);
@@ -116,6 +119,18 @@ function App() {
     resultRef.current?.focus({ preventScroll: false });
   }, [sliceResult]);
 
+  useEffect(() => {
+    if (sliceStartedAt === null) {
+      setSliceElapsed(0);
+      return;
+    }
+
+    const updateElapsed = () => setSliceElapsed(Math.floor((Date.now() - sliceStartedAt) / 1000));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1_000);
+    return () => window.clearInterval(timer);
+  }, [sliceStartedAt]);
+
   const selectedModel = models.find((model) => model.id === selectedId) ?? null;
   const settingsErrors = useMemo(() => validatePrintSettings(settings), [settings]);
   const boundaryErrors = models.flatMap((model) =>
@@ -123,7 +138,8 @@ function App() {
       .filter((warning) => warning.includes("Outside") || warning.includes("Exceeds") || warning.includes("Below"))
       .map((warning) => `${model.name}: ${warning}`),
   );
-  const canSlice = models.length > 0 && settingsErrors.length === 0 && boundaryErrors.length === 0 && !busyMessage;
+  const isSlicing = sliceStartedAt !== null;
+  const canSlice = models.length > 0 && settingsErrors.length === 0 && boundaryErrors.length === 0 && !busyMessage && !isSlicing;
 
   const roughEstimate = useMemo(() => {
     const maxZ = Math.max(0, ...models.map((model) => model.dimensions.z));
@@ -139,6 +155,13 @@ function App() {
       seconds: Math.max(0, seconds),
     };
   }, [models, settings]);
+
+  const slicePercent = Math.round(sliceProgress?.percent ?? 0);
+  const progressIdleSeconds = sliceProgress ? Math.floor((Date.now() - sliceProgress.updatedAt) / 1000) : 0;
+  const elapsedLabel = sliceElapsed < 60 ? `${sliceElapsed}s` : formatDuration(sliceElapsed);
+  const slowProgressLabel = progressIdleSeconds >= 30
+    ? ` | This step has been working for ${progressIdleSeconds}s`
+    : "";
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList?.length || !sceneRef.current) return;
@@ -193,14 +216,28 @@ function App() {
 
   async function slicePlate() {
     if (!sceneRef.current || !canSlice) return;
-    setBusyMessage("Loading browser slicer");
+    const startedAt = Date.now();
+    setSliceStartedAt(startedAt);
+    setSliceProgress({
+      stage: "loading",
+      message: "Loading browser slicer",
+      percent: 1,
+      updatedAt: startedAt,
+    });
     setSliceError(null);
     setSliceResult(null);
     setActiveLayer(0);
 
     try {
       const plateBlob = sceneRef.current.exportPlateAsStlBlob();
-      const output = await sliceInBrowser(plateBlob, settings, setBusyMessage);
+      const output = await sliceInBrowser(plateBlob, settings, setSliceProgress);
+      setSliceProgress({
+        stage: "gcode",
+        message: "Checking generated G-code",
+        percent: 99,
+        updatedAt: Date.now(),
+      });
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       const summary = parseGcode(output.gcode, settings);
       const filename = `k2-se-${new Date().toISOString().replace(/[:.]/g, "-")}.gcode`;
 
@@ -220,7 +257,8 @@ function App() {
     } catch (error) {
       setSliceError(error instanceof Error ? error.message : "Slicing failed.");
     } finally {
-      setBusyMessage(null);
+      setSliceStartedAt(null);
+      setSliceProgress(null);
     }
   }
 
@@ -239,8 +277,8 @@ function App() {
 
         <div className="topActions">
           <span className={`enginePill ${sliceResult ? "ok" : "warn"}`} role="status" aria-live="polite">
-            {busyMessage && !busyMessage.startsWith("Loading model:")
-              ? "Slicing..."
+            {isSlicing
+              ? `Slicing ${slicePercent}%`
               : sliceResult
                 ? "Slice complete"
                 : models.length > 0
@@ -289,6 +327,7 @@ function App() {
                       <small>
                         {formatMm(model.dimensions.x)} x {formatMm(model.dimensions.y)} x {formatMm(model.dimensions.z)}
                       </small>
+                      <small>{numberFormatter.format(model.triangleCount)} triangles</small>
                     </span>
                   </button>
                 ))
@@ -306,6 +345,7 @@ function App() {
                 <Metric label="Size X" value={formatMm(selectedModel.dimensions.x)} />
                 <Metric label="Size Y" value={formatMm(selectedModel.dimensions.y)} />
                 <Metric label="Size Z" value={formatMm(selectedModel.dimensions.z)} />
+                <Metric label="Triangles" value={numberFormatter.format(selectedModel.triangleCount)} />
                 <NumberField label="Move X" value={selectedModel.position.x} step={1} onChange={(value) => updateTransform("position", "x", value)} />
                 <NumberField label="Move Y" value={selectedModel.position.y} step={1} onChange={(value) => updateTransform("position", "y", value)} />
                 <NumberField label="Move Z" value={selectedModel.position.z} step={1} onChange={(value) => updateTransform("position", "z", value)} />
@@ -366,12 +406,21 @@ function App() {
                 <span>Upload STL / 3MF to place a model on the K2 SE plate</span>
               </button>
             )}
-            {busyMessage && (
+            {busyMessage ? (
               <div className="busyOverlay">
                 <LoaderCircle size={22} />
                 {busyMessage}
               </div>
-            )}
+            ) : isSlicing && sliceProgress ? (
+              <div className="busyOverlay sliceBusyOverlay" role="status" aria-live="polite">
+                <LoaderCircle size={22} />
+                <span>
+                  <strong>{sliceProgress.message}</strong>
+                  <small>{slicePercent}% | {elapsedLabel} elapsed{slowProgressLabel}</small>
+                  <progress value={sliceProgress.percent} max={100} aria-label="Slicing progress" />
+                </span>
+              </div>
+            ) : null}
           </div>
 
           <div className="statusStrip">
@@ -478,16 +527,16 @@ function App() {
               <CircleHelp size={16} />
               <h2>Validation</h2>
             </div>
-            <ValidationList items={[...settingsErrors, ...boundaryErrors, ...models.flatMap((model) => model.warnings.filter((warning) => warning.includes("Floating")).map((warning) => `${model.name}: ${warning}`))]} />
+            <ValidationList items={[...settingsErrors, ...boundaryErrors, ...models.flatMap((model) => model.warnings.filter((warning) => warning.includes("Floating") || warning.includes("High mesh detail")).map((warning) => `${model.name}: ${warning}`))]} />
           </section>
 
           <section className="panelSection slicePanel">
             <div
-              className={`sliceStateBanner ${busyMessage && !busyMessage.startsWith("Loading model:") ? "running" : sliceResult ? "complete" : "pending"}`}
+              className={`sliceStateBanner ${isSlicing ? "running" : sliceResult ? "complete" : "pending"}`}
               role="status"
               aria-live="polite"
             >
-              {busyMessage && !busyMessage.startsWith("Loading model:") ? (
+              {isSlicing ? (
                 <LoaderCircle className="spinIcon" size={22} />
               ) : sliceResult ? (
                 <CheckCircle2 size={22} />
@@ -496,26 +545,29 @@ function App() {
               )}
               <span>
                 <strong>
-                  {busyMessage && !busyMessage.startsWith("Loading model:")
-                    ? "Slicing in progress"
+                  {isSlicing
+                    ? `Slicing ${slicePercent}%`
                     : sliceResult
                       ? "Slice complete"
                       : "Not sliced yet"}
                 </strong>
                 <small>
-                  {busyMessage && !busyMessage.startsWith("Loading model:")
-                    ? busyMessage
+                  {isSlicing && sliceProgress
+                    ? `${sliceProgress.message} | ${elapsedLabel} elapsed${slowProgressLabel}`
                     : sliceResult
                       ? `${numberFormatter.format(sliceResult.summary.layerCount)} layers generated. G-code is ready.`
                       : models.length > 0
                         ? "The current plate still needs to be sliced."
                         : "Upload a model before slicing."}
                 </small>
+                {isSlicing && sliceProgress && (
+                  <progress className="sliceProgress" value={sliceProgress.percent} max={100} aria-label="Slicing progress" />
+                )}
               </span>
             </div>
             <button className="sliceButton" type="button" disabled={!canSlice} onClick={() => void slicePlate()}>
-              {busyMessage && !busyMessage.startsWith("Loading model:") ? <LoaderCircle className="spinIcon" size={18} /> : <Scissors size={18} />}
-              {busyMessage && !busyMessage.startsWith("Loading model:") ? "Slicing..." : sliceResult ? "Slice again" : "Slice"}
+              {isSlicing ? <LoaderCircle className="spinIcon" size={18} /> : <Scissors size={18} />}
+              {isSlicing ? `Slicing ${slicePercent}%` : sliceResult ? "Slice again" : "Slice"}
             </button>
             <p className="inlineNotice">Slicing runs privately in this browser. No slicer installation or model upload is required.</p>
             {sliceError && <p className="errorNotice">{sliceError}</p>}

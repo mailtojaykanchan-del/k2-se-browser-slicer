@@ -401,6 +401,44 @@ h1 {
   font-weight: 800;
 }
 
+.sliceBusyOverlay {
+  align-items: flex-start;
+  width: min(420px, calc(100% - 28px));
+  padding: 10px 12px;
+}
+
+.sliceBusyOverlay > span {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+
+.sliceBusyOverlay strong,
+.sliceBusyOverlay small {
+  overflow-wrap: anywhere;
+}
+
+.sliceBusyOverlay small {
+  color: #d7e0e8;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.sliceBusyOverlay progress,
+.sliceProgress {
+  width: 100%;
+  height: 8px;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  accent-color: var(--accent);
+}
+
+.sliceProgress {
+  margin-top: 3px;
+}
+
 .viewerError {
   position: absolute;
   top: 14px;

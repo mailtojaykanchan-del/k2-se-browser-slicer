@@ -19,6 +19,7 @@ export interface ModelSnapshot {
   name: string;
   color: string;
   selected: boolean;
+  triangleCount: number;
   dimensions: Vec3Snapshot;
   position: Vec3Snapshot;
   rotation: Vec3Snapshot;
@@ -661,6 +662,14 @@ export class SlicerScene {
     const size = box.getSize(new THREE.Vector3());
     const warnings: string[] = [];
     const eps = 0.05;
+    let triangleCount = 0;
+
+    entry.object.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      const geometry = (child as THREE.Mesh).geometry;
+      const elementCount = geometry.getIndex()?.count ?? geometry.getAttribute("position")?.count ?? 0;
+      triangleCount += Math.floor(elementCount / 3);
+    });
 
     if (box.min.x < -PLATE.x / 2 - eps || box.max.x > PLATE.x / 2 + eps) {
       warnings.push("Outside X boundary");
@@ -677,6 +686,9 @@ export class SlicerScene {
     if (box.min.z < -eps) {
       warnings.push("Below plate");
     }
+    if (triangleCount >= 500_000) {
+      warnings.push(`High mesh detail: ${triangleCount.toLocaleString()} triangles; browser slicing may take several minutes`);
+    }
 
     const selected = entry.id === this.selectedId;
     const valid = !warnings.some((warning) => warning.includes("Outside") || warning.includes("Exceeds") || warning.includes("Below"));
@@ -687,6 +699,7 @@ export class SlicerScene {
       name: entry.name,
       color: `#${entry.color.getHexString()}`,
       selected,
+      triangleCount,
       dimensions: {
         x: Number(size.x.toFixed(2)),
         y: Number(size.y.toFixed(2)),
