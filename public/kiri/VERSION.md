@@ -8,3 +8,5 @@
 - Retrieved: `2026-08-12`
 
 The engine is distributed under the MIT license in `LICENSE.md`.
+
+Local static-host patches keep worker and WebAssembly URLs relative to these bundled assets and skip the engine's unused worker-pool startup.

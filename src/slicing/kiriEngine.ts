@@ -1,7 +1,7 @@
 import { K2_SE_PROFILE } from "../../shared/profile";
 import type { PrintSettings } from "../../shared/settings";
 
-const KIRI_ASSET_VERSION = "20260819-1";
+const KIRI_ASSET_VERSION = "20260821-1";
 
 function versionedAssetUrl(path: string): string {
   const url = new URL(path, document.baseURI);
