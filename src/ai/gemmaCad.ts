@@ -6,8 +6,68 @@ export interface AiCadPart {
   position: Vec3Snapshot;
 }
 
-export async function generateCadPlan(prompt: string): Promise<{ parts: AiCadPart[]; engine: "parser" }> {
+interface PuterChatResponse {
+  message?: { content?: unknown };
+}
+
+interface PuterClient {
+  ai: { chat: (prompt: string, options?: Record<string, unknown>) => Promise<PuterChatResponse | string> };
+}
+
+declare global {
+  interface Window { puter?: PuterClient }
+}
+
+export async function generateCadPlan(
+  prompt: string,
+  progress?: (message: string) => void,
+): Promise<{ parts: AiCadPart[]; engine: "cloud" | "parser" }> {
+  if (window.puter?.ai) {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      progress?.(`AI design attempt ${attempt} of 3`);
+      try {
+        const response = await window.puter.ai.chat(buildCadPrompt(prompt, attempt), { model: "gpt-5-nano" });
+        const text = typeof response === "string" ? response : response.message?.content;
+        if (typeof text !== "string") throw new Error("The AI returned no text plan.");
+        return { parts: normalizePlan(extractJson(text)), engine: "cloud" };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    try {
+      progress?.("Cloud AI failed; trying the built-in designer");
+      return { parts: parsePromptLocally(prompt), engine: "parser" };
+    } catch {
+      const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
+      throw new Error(`AI could not produce valid printable CAD after 3 attempts: ${detail}`);
+    }
+  }
+
+  progress?.("Cloud AI unavailable; using the built-in designer");
   return { parts: parsePromptLocally(prompt), engine: "parser" };
+}
+
+function buildCadPrompt(request: string, attempt: number): string {
+  return `You are a CAD planner. Convert the request into a simple printable assembly made only from these primitives: box, cylinder, sphere, cone, tube, basketball, airlessBall.
+Return JSON only, with no markdown, using exactly this schema:
+{"parts":[{"kind":"box","width":30,"depth":30,"height":20,"diameter":30,"topDiameter":0,"innerDiameter":18,"x":0,"y":0,"z":0}]}
+Use millimeters and 1 to 12 parts. Keep every dimension between 0.8 and 220. For tubes, innerDiameter must be smaller than diameter. Parts should overlap when they are intended to form one object. The K2 SE plate is 220 x 215 x 245 mm. Approximate complex objects with recognizable primitive assemblies. This is validation attempt ${attempt}; carefully return valid JSON. User request: ${request}`;
+}
+
+function extractJson(text: string): unknown {
+  const fenced = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const start = fenced.indexOf("{");
+  const end = fenced.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("The AI response did not contain JSON.");
+  return JSON.parse(fenced.slice(start, end + 1));
+}
+
+function normalizePlan(input: unknown): AiCadPart[] {
+  const rawParts = (input as { parts?: unknown })?.parts;
+  if (!Array.isArray(rawParts) || rawParts.length === 0) throw new Error("The AI plan contains no parts.");
+  return rawParts.slice(0, 12).map(normalizePart);
 }
 
 function normalizePart(raw: unknown): AiCadPart {

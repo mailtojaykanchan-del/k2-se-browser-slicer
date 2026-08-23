@@ -21,7 +21,7 @@ export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
       <div className="aiModelStatus ready">
         <Bot size={18} />
         <span>
-          <strong>Quick CAD ready</strong>
+          <strong>AI CAD ready</strong>
           <small>{status}</small>
         </span>
       </div>
@@ -51,6 +51,7 @@ export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
         <span>Basketball</span>
         <span>Airless ball</span>
       </div>
+      <small className="aiCloudNotice">Cloud AI may request Puter sign-in. Prompts are sent to Puter; no developer API key is required.</small>
     </section>
   );
 }

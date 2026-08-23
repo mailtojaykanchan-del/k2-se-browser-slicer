@@ -105,7 +105,7 @@ function App() {
   const [sliceError, setSliceError] = useState<string | null>(null);
   const [conversionNotice, setConversionNotice] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiStatus, setAiStatus] = useState("Built in; no download or API key");
+  const [aiStatus, setAiStatus] = useState("Cloud AI with automatic retry; no developer API key");
   const [activeLayer, setActiveLayer] = useState(0);
   const downloadUrlRef = useRef<string | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -253,7 +253,7 @@ function App() {
     setAiBusy(true);
     setSliceError(null);
     try {
-      const plan = await generateCadPlan(prompt);
+      const plan = await generateCadPlan(prompt, setAiStatus);
       invalidateSliceResult();
       sceneRef.current.deleteModels(quickCadIdsRef.current);
       quickCadIdsRef.current = [];
@@ -263,7 +263,7 @@ function App() {
         sceneRef.current.updateSelectedTransform({ position: part.position });
       }
       sceneRef.current.setCameraView("iso");
-      setAiStatus(`Quick CAD created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`);
+      setAiStatus(`${plan.engine === "cloud" ? "AI" : "Quick CAD"} created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`);
     } catch (error) {
       setAiStatus(error instanceof Error ? error.message : "Could not generate this CAD model");
     } finally {
