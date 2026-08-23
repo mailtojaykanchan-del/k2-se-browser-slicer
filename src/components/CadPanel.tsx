@@ -33,6 +33,7 @@ export function defaultCadDefinition(kind: CadPrimitiveKind): CadDefinition {
 
   if (kind === "cylinder") return { ...common, height: 25 };
   if (kind === "sphere") return { ...common, height: 30 };
+  if (kind === "basketball") return { ...common, height: 30 };
   if (kind === "cone") return { ...common, diameter: 35, height: 30 };
   if (kind === "tube") return { ...common, diameter: 36, innerDiameter: 22 };
   return common;

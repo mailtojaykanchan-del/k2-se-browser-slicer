@@ -4,11 +4,12 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { strToU8, zipSync } from "fflate";
 import { K2_SE_PROFILE } from "../../shared/profile";
 
 export type TransformMode = "translate" | "rotate" | "scale";
-export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube";
+export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube" | "basketball";
 export type CameraView = "iso" | "top" | "front" | "right";
 export type ModelFileFormat = "stl" | "3mf";
 
@@ -793,6 +794,16 @@ export class SlicerScene {
       case "sphere":
         geometry = new THREE.SphereGeometry(radius, 64, 32);
         break;
+      case "basketball": {
+        const ball = new THREE.SphereGeometry(radius, 64, 32);
+        const seamRadius = radius * 0.985;
+        const seamThickness = Math.max(0.35, radius * 0.025);
+        const seamXY = new THREE.TorusGeometry(seamRadius, seamThickness, 10, 96);
+        const seamXZ = seamXY.clone().rotateX(Math.PI / 2);
+        const seamYZ = seamXY.clone().rotateY(Math.PI / 2);
+        geometry = mergeGeometries([ball, seamXY, seamXZ, seamYZ], false) ?? ball;
+        break;
+      }
       case "cone":
         geometry = new THREE.CylinderGeometry(definition.topDiameter / 2, radius, definition.height, 64);
         geometry.rotateX(Math.PI / 2);
