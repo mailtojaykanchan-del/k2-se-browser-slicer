@@ -487,6 +487,26 @@ export class SlicerScene {
     this.sync();
   }
 
+  deleteModels(ids: Iterable<string>): void {
+    const removed = new Set(ids);
+    let changed = false;
+    for (const id of removed) {
+      const entry = this.models.get(id);
+      if (!entry) continue;
+      if (this.selectedId === id) this.transform.detach();
+      this.scene.remove(entry.object);
+      this.disposeObject(entry.object);
+      this.models.delete(id);
+      changed = true;
+    }
+    if (!changed) return;
+    if (this.selectedId && !this.models.has(this.selectedId)) {
+      this.selectedId = this.models.keys().next().value ?? null;
+    }
+    if (this.selectedId) this.transform.attach(this.models.get(this.selectedId)!.object);
+    this.sync();
+  }
+
   autoArrange(): void {
     if (this.models.size === 1) {
       const only = this.models.values().next().value;

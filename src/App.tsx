@@ -90,6 +90,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const converterInputRef = useRef<HTMLInputElement | null>(null);
   const conversionRef = useRef<{ source: "stl" | "3mf"; output: ModelFileFormat } | null>(null);
+  const quickCadIdsRef = useRef<string[]>([]);
   const [models, setModels] = useState<ModelSnapshot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("prepare");
@@ -254,8 +255,11 @@ function App() {
     try {
       const plan = await generateCadPlan(prompt);
       invalidateSliceResult();
+      sceneRef.current.deleteModels(quickCadIdsRef.current);
+      quickCadIdsRef.current = [];
       for (const part of plan.parts) {
-        sceneRef.current.createCadPrimitive(part.definition);
+        const id = sceneRef.current.createCadPrimitive(part.definition);
+        quickCadIdsRef.current.push(id);
         sceneRef.current.updateSelectedTransform({ position: part.position });
       }
       sceneRef.current.setCameraView("iso");
