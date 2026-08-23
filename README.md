@@ -61,6 +61,7 @@ The `dist` directory includes the slicing engine under `kiri/` and its WebAssemb
 ## Features
 
 - CAD mode with editable boxes, cylinders, spheres, cones, and tubes
+- AI CAD workspace with optional local Gemma 3 1B generation through WebGPU and no API key
 - Connect touching or slightly overlapping solids into one movable, exportable, printable compound
 - CAD STL export plus isometric, top, front, and right camera views
 - Dedicated Convert workspace for local CAD-to-STL, CAD-to-3MF, STL-to-3MF, and 3MF-to-STL conversion
@@ -79,3 +80,5 @@ The `dist` directory includes the slicing engine under `kiri/` and its WebAssemb
 The original PrusaSlicer/SuperSlicer wrapper remains available for development or server-side workflows. Run `pnpm dev:full` and set `PRUSASLICER_BIN` only if you explicitly want that optional API. The browser UI does not require it.
 
 Kiri:Moto is an open-source Grid.Space project distributed under the MIT license. The bundled license is in `public/kiri/LICENSE.md`. See the [Kiri:Moto documentation](https://docs.grid.space/kiri-moto/) and [GridSpace/grid-apps repository](https://github.com/GridSpace/grid-apps).
+
+The optional AI CAD model runs locally through Transformers.js. Loading Gemma requires a WebGPU-capable browser and a one-time model download; the basic local prompt interpreter remains available when Gemma is not loaded.

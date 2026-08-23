@@ -26,6 +26,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CadPanel, defaultCadDefinition } from "./components/CadPanel";
 import { ConverterPanel } from "./components/ConverterPanel";
+import { AiCadPanel } from "./components/AiCadPanel";
 import { LayerPreview, type LayerPreviewLayer } from "./components/LayerPreview";
 import { formatDuration, formatGrams, formatMetersFromMm, formatMm } from "./lib/format";
 import {
@@ -39,6 +40,7 @@ import {
 import { sliceInBrowser, type BrowserSliceProgress } from "./slicing/kiriEngine";
 import { K2_SE_PROFILE } from "../shared/profile";
 import { parseGcode } from "../shared/gcodeParser";
+import { generateCadPlan, isGemmaLoaded, loadGemma } from "./ai/gemmaCad";
 import {
   DEFAULT_PRINT_SETTINGS,
   type AdhesionMode,
@@ -72,7 +74,7 @@ interface SliceResult {
 }
 
 const numberFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-type WorkspaceMode = "prepare" | "cad" | "convert";
+type WorkspaceMode = "prepare" | "cad" | "ai" | "convert";
 
 function plateSignature(models: ModelSnapshot[]): string {
   return JSON.stringify(
@@ -101,6 +103,9 @@ function App() {
   const [sliceResult, setSliceResult] = useState<SliceResult | null>(null);
   const [sliceError, setSliceError] = useState<string | null>(null);
   const [conversionNotice, setConversionNotice] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiModelLoaded, setAiModelLoaded] = useState(isGemmaLoaded());
+  const [aiStatus, setAiStatus] = useState("Runs on this device; no API key");
   const [activeLayer, setActiveLayer] = useState(0);
   const downloadUrlRef = useRef<string | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -240,7 +245,43 @@ function App() {
 
   function changeWorkspaceMode(nextMode: WorkspaceMode) {
     setWorkspaceMode(nextMode);
-    if (nextMode === "cad") sceneRef.current?.setCameraView("iso");
+    if (nextMode === "cad" || nextMode === "ai") sceneRef.current?.setCameraView("iso");
+  }
+
+  async function loadLocalGemma() {
+    if (aiBusy || aiModelLoaded) return;
+    setAiBusy(true);
+    try {
+      await loadGemma(setAiStatus);
+      setAiModelLoaded(true);
+      setAiStatus("Ready on this device");
+    } catch (error) {
+      setAiStatus(error instanceof Error ? `Gemma unavailable: ${error.message}` : "Gemma could not load");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function generateAiCad(prompt: string) {
+    if (!sceneRef.current || aiBusy) return;
+    setAiBusy(true);
+    setSliceError(null);
+    try {
+      const plan = await generateCadPlan(prompt);
+      invalidateSliceResult();
+      for (const part of plan.parts) {
+        sceneRef.current.createCadPrimitive(part.definition);
+        sceneRef.current.updateSelectedTransform({ position: part.position });
+      }
+      sceneRef.current.setCameraView("iso");
+      setAiStatus(plan.engine === "gemma"
+        ? `Gemma created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`
+        : `Created ${plan.parts.length} part with the local fallback`);
+    } catch (error) {
+      setAiStatus(error instanceof Error ? error.message : "Could not generate this CAD model");
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   function addCadPart() {
@@ -417,6 +458,10 @@ function App() {
               <Box size={16} />
               CAD
             </button>
+            <button type="button" role="tab" aria-selected={workspaceMode === "ai"} className={workspaceMode === "ai" ? "selected" : ""} onClick={() => changeWorkspaceMode("ai")}>
+              <Sparkles size={16} />
+              AI CAD
+            </button>
             <button type="button" role="tab" aria-selected={workspaceMode === "convert"} className={workspaceMode === "convert" ? "selected" : ""} onClick={() => changeWorkspaceMode("convert")}>
               <ArrowRightLeft size={16} />
               Convert
@@ -478,6 +523,14 @@ function App() {
               notice={conversionNotice}
               onConvert={startConversion}
             />
+          ) : workspaceMode === "ai" ? (
+            <AiCadPanel
+              modelLoaded={aiModelLoaded}
+              busy={aiBusy}
+              status={aiStatus}
+              onLoadModel={() => void loadLocalGemma()}
+              onGenerate={(prompt) => void generateAiCad(prompt)}
+            />
           ) : (
             <DropZone onFiles={handleFiles} busy={busyMessage?.startsWith("Loading model:") ? busyMessage : null} />
           )}
@@ -491,7 +544,11 @@ function App() {
             <div className="modelList">
               {models.length === 0 ? (
                 <div className="emptyState">
-                  {workspaceMode === "cad" ? "Add a CAD primitive to start a new part." : "Upload an STL first. 3MF files are accepted when their geometry can be read in the browser."}
+                  {workspaceMode === "cad"
+                    ? "Add a CAD primitive to start a new part."
+                    : workspaceMode === "ai"
+                      ? "No AI-generated parts yet."
+                      : "Upload an STL first. 3MF files are accepted when their geometry can be read in the browser."}
                 </div>
               ) : (
                 models.map((model) => (
@@ -587,7 +644,7 @@ function App() {
           <div className="canvasFrame">
             <canvas ref={canvasRef} />
             {sliceError && <div className="viewerError" role="alert">{sliceError}</div>}
-            {models.length === 0 && (
+            {models.length === 0 && workspaceMode !== "ai" && workspaceMode !== "convert" && (
               <button className="canvasEmpty" type="button" onClick={workspaceMode === "cad" ? addCadPart : () => fileInputRef.current?.click()}>
                 {workspaceMode === "cad" ? <Plus size={24} /> : <MousePointer2 size={24} />}
                 <span>{workspaceMode === "cad" ? "Add a CAD part to the K2 SE plate" : "Upload STL / 3MF to place a model on the K2 SE plate"}</span>
@@ -613,7 +670,7 @@ function App() {
           <div className="statusStrip">
             <Metric label="Plate" value={`${K2_SE_PROFILE.buildVolume.x} x ${K2_SE_PROFILE.buildVolume.y} mm`} />
             <Metric label="Height" value={`${K2_SE_PROFILE.buildVolume.z} mm`} />
-            <Metric label="Workspace" value={workspaceMode === "cad" ? "CAD" : workspaceMode === "convert" ? "Convert" : "Prepare"} />
+            <Metric label="Workspace" value={workspaceMode === "cad" ? "CAD" : workspaceMode === "ai" ? "AI CAD" : workspaceMode === "convert" ? "Convert" : "Prepare"} />
             <Metric label="Profile" value="PLA, single filament" />
           </div>
         </section>
