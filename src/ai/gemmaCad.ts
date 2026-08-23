@@ -40,10 +40,12 @@ export async function generateCadPlan(prompt: string): Promise<{ parts: AiCadPar
 
   const instruction = `You create simple 3D-printable CAD assemblies. Return JSON only with this schema:
 {"parts":[{"kind":"box|cylinder|sphere|cone|tube","width":30,"depth":30,"height":20,"diameter":30,"topDiameter":0,"innerDiameter":18,"x":0,"y":0,"z":0}]}
-Use millimeters. Use at most 8 parts. All dimensions must be positive, except cone topDiameter may be zero. For tubes innerDiameter must be smaller than diameter. Only use the listed primitive kinds. Request: ${prompt}`;
+Use millimeters. Use at most 8 parts. All dimensions must be positive, except cone topDiameter may be zero. For tubes innerDiameter must be smaller than diameter. Only use the listed primitive kinds. If the request requires a person, face, likeness, sculpture, or unsupported freeform mesh, return {"error":"This request needs a freeform 3D model generator and cannot be made from CAD primitives."}. Request: ${prompt}`;
   const result = await generator(instruction, { max_new_tokens: 420, do_sample: false, temperature: 0.1 });
   const text = extractGeneratedText(result);
   const json = extractJson(text);
+  const modelError = (json as { error?: unknown })?.error;
+  if (typeof modelError === "string") throw new Error(modelError);
   return { parts: normalizePlan(json), engine: "gemma" };
 }
 
@@ -109,6 +111,11 @@ function clampPosition(value: unknown, min: number, max: number): number {
 
 function parsePromptLocally(prompt: string): AiCadPart[] {
   const lower = prompt.toLowerCase();
+  const dimensions = [...lower.matchAll(/(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?))?/g)][0];
+  const mentionsSupportedShape = ["box", "cube", "cylinder", "sphere", "ball", "cone", "tube", "ring"].some((word) => lower.includes(word));
+  if (!mentionsSupportedShape && !dimensions) {
+    throw new Error("This CAD builder supports simple boxes, cylinders, spheres, cones, and tubes. It cannot recreate a person or likeness.");
+  }
   const kind: CadPrimitiveKind = lower.includes("tube") || lower.includes("ring")
     ? "tube"
     : lower.includes("sphere") || lower.includes("ball")
@@ -119,7 +126,6 @@ function parsePromptLocally(prompt: string): AiCadPart[] {
           ? "cone"
           : "box";
   const defaults = defaultCadDefinition(kind);
-  const dimensions = [...lower.matchAll(/(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?))?/g)][0];
   const named = (name: string) => Number(lower.match(new RegExp(`${name}[^\\d]*(\\d+(?:\\.\\d+)?)`))?.[1]);
   if (kind === "box" && dimensions) {
     defaults.width = Number(dimensions[1]);
