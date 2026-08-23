@@ -108,6 +108,39 @@ h1 {
   justify-content: flex-end;
 }
 
+.workspaceModeSwitch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f7f9fb;
+}
+
+.workspaceModeSwitch button {
+  min-height: 36px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #415061;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workspaceModeSwitch button:last-child {
+  border-right: 0;
+}
+
+.workspaceModeSwitch button.selected {
+  background: #1c2a35;
+  color: #fff;
+}
+
 .enginePill {
   min-height: 34px;
   display: inline-flex;
@@ -237,6 +270,129 @@ h1 {
 .panelSection {
   border-top: 1px solid var(--line);
   padding-top: 12px;
+}
+
+.cadPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.cadPanel .sectionTitle {
+  margin-bottom: 0;
+}
+
+.cadShapeGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.cadShapeGrid button {
+  min-width: 0;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  padding: 5px 2px;
+  color: #43505e;
+  cursor: pointer;
+}
+
+.cadShapeGrid button span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.cadShapeGrid button:hover,
+.cadShapeGrid button.selected {
+  border-color: var(--accent);
+  background: #fff4ed;
+  color: var(--accent-dark);
+}
+
+.cadDimensionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cadError {
+  border: 1px solid #f0b6b6;
+  border-radius: 7px;
+  background: #fff1f1;
+  color: #9a1f1f;
+  padding: 8px 9px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.cadActions {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 0.7fr;
+  gap: 6px;
+}
+
+.cadActions button {
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.cadActions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cadActions .cadPrimaryAction {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.cadViews {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.cadViews button {
+  min-height: 31px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: #f8fafc;
+  color: #52606e;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cadViews button:last-child {
+  border-right: 0;
+}
+
+.cadViews button:hover {
+  background: #edf2f6;
+  color: #1c2a35;
 }
 
 .panelSection:first-child {
@@ -829,6 +985,10 @@ summary {
     width: 100%;
   }
 
+  .workspaceModeSwitch {
+    flex: 1;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -858,8 +1018,17 @@ summary {
   }
 
   .fieldGrid,
-  .estimateGrid {
+  .estimateGrid,
+  .cadDimensionGrid {
     grid-template-columns: 1fr;
+  }
+
+  .cadActions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cadActions .cadPrimaryAction {
+    grid-column: 1 / -1;
   }
 
   .viewerToolbar {

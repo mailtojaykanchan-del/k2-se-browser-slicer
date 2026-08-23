@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   Move3D,
   MousePointer2,
+  Plus,
   Scan,
   Rotate3D,
   Ruler,
@@ -21,9 +22,16 @@ import {
   Undo2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CadPanel, defaultCadDefinition } from "./components/CadPanel";
 import { LayerPreview, type LayerPreviewLayer } from "./components/LayerPreview";
 import { formatDuration, formatGrams, formatMetersFromMm, formatMm } from "./lib/format";
-import { type ModelSnapshot, type TransformMode, SlicerScene } from "./scene/SlicerScene";
+import {
+  type CadDefinition,
+  type CameraView,
+  type ModelSnapshot,
+  type TransformMode,
+  SlicerScene,
+} from "./scene/SlicerScene";
 import { sliceInBrowser, type BrowserSliceProgress } from "./slicing/kiriEngine";
 import { K2_SE_PROFILE } from "../shared/profile";
 import { parseGcode } from "../shared/gcodeParser";
@@ -60,11 +68,12 @@ interface SliceResult {
 }
 
 const numberFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+type WorkspaceMode = "prepare" | "cad";
 
 function plateSignature(models: ModelSnapshot[]): string {
   return JSON.stringify(
     models
-      .map(({ id, dimensions, position, rotation, scale }) => ({ id, dimensions, position, rotation, scale }))
+      .map(({ id, dimensions, position, rotation, scale, cad }) => ({ id, dimensions, position, rotation, scale, cad }))
       .sort((a, b) => a.id.localeCompare(b.id)),
   );
 }
@@ -75,6 +84,8 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [models, setModels] = useState<ModelSnapshot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("prepare");
+  const [cadDraft, setCadDraft] = useState<CadDefinition>(() => defaultCadDefinition("box"));
   const [mode, setMode] = useState<TransformMode>("translate");
   const [settings, setSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
   const [busyMessage, setBusyMessage] = useState<string | null>(null);
@@ -120,6 +131,11 @@ function App() {
   }, [sliceResult]);
 
   useEffect(() => {
+    const selectedCad = models.find((model) => model.id === selectedId)?.cad;
+    if (selectedCad) setCadDraft({ ...selectedCad });
+  }, [selectedId]);
+
+  useEffect(() => {
     if (sliceStartedAt === null) {
       setSliceElapsed(0);
       return;
@@ -132,6 +148,26 @@ function App() {
   }, [sliceStartedAt]);
 
   const selectedModel = models.find((model) => model.id === selectedId) ?? null;
+  const cadError = useMemo(() => {
+    const values = [cadDraft.width, cadDraft.depth, cadDraft.height, cadDraft.diameter, cadDraft.topDiameter, cadDraft.innerDiameter];
+    if (values.some((value) => !Number.isFinite(value) || value < 0)) return "Enter valid non-negative dimensions.";
+    if (cadDraft.kind === "box" && (cadDraft.width <= 0 || cadDraft.depth <= 0 || cadDraft.height <= 0)) {
+      return "Width, depth, and height must be greater than zero.";
+    }
+    if (cadDraft.kind !== "box" && cadDraft.diameter <= 0) {
+      return "Diameter must be greater than zero.";
+    }
+    if (cadDraft.kind !== "sphere" && cadDraft.kind !== "box" && cadDraft.height <= 0) {
+      return "Height must be greater than zero.";
+    }
+    if (cadDraft.kind === "tube" && cadDraft.innerDiameter <= 0) {
+      return "Inner diameter must be greater than zero.";
+    }
+    if (cadDraft.kind === "tube" && cadDraft.innerDiameter >= cadDraft.diameter) {
+      return "Inner diameter must be smaller than outer diameter.";
+    }
+    return null;
+  }, [cadDraft]);
   const settingsErrors = useMemo(() => validatePrintSettings(settings), [settings]);
   const boundaryErrors = models.flatMap((model) =>
     model.warnings
@@ -193,6 +229,40 @@ function App() {
   function updateMode(nextMode: TransformMode) {
     setMode(nextMode);
     sceneRef.current?.setMode(nextMode);
+  }
+
+  function changeWorkspaceMode(nextMode: WorkspaceMode) {
+    setWorkspaceMode(nextMode);
+    if (nextMode === "cad") sceneRef.current?.setCameraView("iso");
+  }
+
+  function addCadPart() {
+    if (!sceneRef.current || cadError) return;
+    invalidateSliceResult();
+    sceneRef.current.createCadPrimitive(cadDraft);
+  }
+
+  function applyCadPart() {
+    if (!sceneRef.current || !selectedModel?.cad || cadError) return;
+    invalidateSliceResult();
+    sceneRef.current.updateSelectedCadPrimitive(cadDraft);
+  }
+
+  function downloadSelectedStl() {
+    const blob = sceneRef.current?.exportSelectedAsStlBlob();
+    if (!blob || !selectedModel) return;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${selectedModel.name.replace(/\.(stl|3mf)$/i, "").replace(/[^a-z0-9_-]+/gi, "-")}.stl`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
+
+  function setCameraView(view: CameraView) {
+    sceneRef.current?.setCameraView(view);
   }
 
   function patchSettings(patch: Partial<PrintSettings>) {
@@ -276,6 +346,16 @@ function App() {
         </div>
 
         <div className="topActions">
+          <div className="workspaceModeSwitch" role="tablist" aria-label="Workspace mode">
+            <button type="button" role="tab" aria-selected={workspaceMode === "prepare"} className={workspaceMode === "prepare" ? "selected" : ""} onClick={() => changeWorkspaceMode("prepare")}>
+              <Scissors size={16} />
+              Prepare
+            </button>
+            <button type="button" role="tab" aria-selected={workspaceMode === "cad"} className={workspaceMode === "cad" ? "selected" : ""} onClick={() => changeWorkspaceMode("cad")}>
+              <Box size={16} />
+              CAD
+            </button>
+          </div>
           <span className={`enginePill ${sliceResult ? "ok" : "warn"}`} role="status" aria-live="polite">
             {isSlicing
               ? `Slicing ${slicePercent}%`
@@ -302,7 +382,20 @@ function App() {
 
       <section className="workspace">
         <aside className="panel modelPanel">
-          <DropZone onFiles={handleFiles} busy={busyMessage?.startsWith("Loading model:") ? busyMessage : null} />
+          {workspaceMode === "cad" ? (
+            <CadPanel
+              definition={cadDraft}
+              selectedIsCad={Boolean(selectedModel?.cad)}
+              error={cadError}
+              onChange={setCadDraft}
+              onAdd={addCadPart}
+              onApply={applyCadPart}
+              onDownload={downloadSelectedStl}
+              onView={setCameraView}
+            />
+          ) : (
+            <DropZone onFiles={handleFiles} busy={busyMessage?.startsWith("Loading model:") ? busyMessage : null} />
+          )}
 
           <section className="panelSection">
             <div className="sectionTitle">
@@ -312,7 +405,9 @@ function App() {
             </div>
             <div className="modelList">
               {models.length === 0 ? (
-                <div className="emptyState">Upload an STL first. 3MF files are accepted when their geometry can be read in the browser.</div>
+                <div className="emptyState">
+                  {workspaceMode === "cad" ? "Add a CAD primitive to start a new part." : "Upload an STL first. 3MF files are accepted when their geometry can be read in the browser."}
+                </div>
               ) : (
                 models.map((model) => (
                   <button
@@ -327,7 +422,7 @@ function App() {
                       <small>
                         {formatMm(model.dimensions.x)} x {formatMm(model.dimensions.y)} x {formatMm(model.dimensions.z)}
                       </small>
-                      <small>{numberFormatter.format(model.triangleCount)} triangles</small>
+                      <small>{model.cad ? `CAD ${model.cad.kind} | ` : ""}{numberFormatter.format(model.triangleCount)} triangles</small>
                     </span>
                   </button>
                 ))
@@ -401,9 +496,9 @@ function App() {
             <canvas ref={canvasRef} />
             {sliceError && <div className="viewerError" role="alert">{sliceError}</div>}
             {models.length === 0 && (
-              <button className="canvasEmpty" type="button" onClick={() => fileInputRef.current?.click()}>
-                <MousePointer2 size={24} />
-                <span>Upload STL / 3MF to place a model on the K2 SE plate</span>
+              <button className="canvasEmpty" type="button" onClick={workspaceMode === "cad" ? addCadPart : () => fileInputRef.current?.click()}>
+                {workspaceMode === "cad" ? <Plus size={24} /> : <MousePointer2 size={24} />}
+                <span>{workspaceMode === "cad" ? "Add a CAD part to the K2 SE plate" : "Upload STL / 3MF to place a model on the K2 SE plate"}</span>
               </button>
             )}
             {busyMessage ? (
@@ -426,7 +521,7 @@ function App() {
           <div className="statusStrip">
             <Metric label="Plate" value={`${K2_SE_PROFILE.buildVolume.x} x ${K2_SE_PROFILE.buildVolume.y} mm`} />
             <Metric label="Height" value={`${K2_SE_PROFILE.buildVolume.z} mm`} />
-            <Metric label="Mode" value={mode} />
+            <Metric label="Workspace" value={workspaceMode === "cad" ? "CAD" : "Prepare"} />
             <Metric label="Profile" value="PLA, single filament" />
           </div>
         </section>

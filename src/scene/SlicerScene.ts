@@ -7,6 +7,18 @@ import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { K2_SE_PROFILE } from "../../shared/profile";
 
 export type TransformMode = "translate" | "rotate" | "scale";
+export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube";
+export type CameraView = "iso" | "top" | "front" | "right";
+
+export interface CadDefinition {
+  kind: CadPrimitiveKind;
+  width: number;
+  depth: number;
+  height: number;
+  diameter: number;
+  topDiameter: number;
+  innerDiameter: number;
+}
 
 export interface Vec3Snapshot {
   x: number;
@@ -20,6 +32,7 @@ export interface ModelSnapshot {
   color: string;
   selected: boolean;
   triangleCount: number;
+  cad: CadDefinition | null;
   dimensions: Vec3Snapshot;
   position: Vec3Snapshot;
   rotation: Vec3Snapshot;
@@ -33,6 +46,7 @@ interface ModelEntry {
   name: string;
   object: THREE.Object3D;
   color: THREE.Color;
+  cad?: CadDefinition;
 }
 
 const PLATE = K2_SE_PROFILE.buildVolume;
@@ -175,8 +189,65 @@ export class SlicerScene {
     this.sync();
   }
 
+  createCadPrimitive(definition: CadDefinition): string {
+    const cad = this.normalizeCadDefinition(definition);
+    const id = crypto.randomUUID();
+    const color = new THREE.Color(COLORS[this.models.size % COLORS.length]);
+    const geometry = this.createCadGeometry(cad);
+    const object = new THREE.Mesh(geometry, this.createMaterial(this.models.size));
+    object.castShadow = true;
+    object.receiveShadow = true;
+    object.userData.modelId = id;
+
+    const kindCount = [...this.models.values()].filter((entry) => entry.cad?.kind === cad.kind).length + 1;
+    const name = `CAD ${cad.kind[0].toUpperCase()}${cad.kind.slice(1)} ${kindCount}`;
+    this.models.set(id, { id, name, object, color, cad });
+    this.scene.add(object);
+    this.centerObject(object);
+    this.selectModel(id);
+    this.focusObject(object);
+    this.sync();
+    return id;
+  }
+
+  updateSelectedCadPrimitive(definition: CadDefinition): void {
+    const entry = this.selectedEntry();
+    if (!entry?.cad || !(entry.object instanceof THREE.Mesh)) return;
+
+    const cad = this.normalizeCadDefinition(definition);
+    const oldGeometry = entry.object.geometry;
+    entry.object.geometry = this.createCadGeometry(cad);
+    entry.cad = cad;
+    oldGeometry.dispose();
+    this.keepAbovePlate(entry.object);
+    this.sync();
+  }
+
   setMode(mode: TransformMode): void {
     this.transform.setMode(mode);
+  }
+
+  setCameraView(view: CameraView): void {
+    const bounds = new THREE.Box3();
+    for (const entry of this.models.values()) bounds.union(this.boxOf(entry.object));
+    const target = bounds.isEmpty()
+      ? new THREE.Vector3(0, 0, 35)
+      : bounds.getCenter(new THREE.Vector3());
+    const sphere = bounds.isEmpty() ? new THREE.Sphere(target, 90) : bounds.getBoundingSphere(new THREE.Sphere());
+    const distance = Math.max(260, sphere.radius * 3.2);
+    const directions: Record<CameraView, THREE.Vector3> = {
+      iso: new THREE.Vector3(1, -1, 0.8),
+      top: new THREE.Vector3(0, 0, 1),
+      front: new THREE.Vector3(0, -1, 0.12),
+      right: new THREE.Vector3(1, 0, 0.12),
+    };
+
+    this.camera.up.set(0, view === "top" ? 1 : 0, view === "top" ? 0 : 1);
+    this.orbit.target.copy(target);
+    this.camera.position.copy(target).add(directions[view].normalize().multiplyScalar(distance));
+    this.camera.lookAt(target);
+    this.camera.updateProjectionMatrix();
+    this.orbit.update();
   }
 
   selectModel(id: string | null): void {
@@ -297,15 +368,17 @@ export class SlicerScene {
       child.userData.modelId = id;
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
+        mesh.geometry = mesh.geometry.clone();
         mesh.material = this.createMaterial(this.models.size);
       }
     });
 
     this.models.set(id, {
       id,
-      name: `${entry.name.replace(/\.(stl|3mf)$/i, "")} copy.stl`,
+      name: entry.cad ? `${entry.name} copy` : `${entry.name.replace(/\.(stl|3mf)$/i, "")} copy.stl`,
       object,
       color,
+      cad: entry.cad ? { ...entry.cad } : undefined,
     });
     this.scene.add(object);
     this.selectModel(id);
@@ -383,6 +456,24 @@ export class SlicerScene {
     exportRoot.add(shiftToPrinterCoordinates);
     exportRoot.updateMatrixWorld(true);
     const result = new STLExporter().parse(exportRoot, { binary: true });
+    const buffer = typeof result === "string" ? new TextEncoder().encode(result).buffer : result;
+    return new Blob([buffer], { type: "model/stl" });
+  }
+
+  exportSelectedAsStlBlob(): Blob | null {
+    const entry = this.selectedEntry();
+    if (!entry) return null;
+
+    const clone = entry.object.clone(true);
+    clone.position.set(0, 0, 0);
+    clone.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(clone);
+    const center = box.getCenter(new THREE.Vector3());
+    clone.position.x -= center.x;
+    clone.position.y -= center.y;
+    clone.position.z -= box.min.z;
+    clone.updateMatrixWorld(true);
+    const result = new STLExporter().parse(clone, { binary: true });
     const buffer = typeof result === "string" ? new TextEncoder().encode(result).buffer : result;
     return new Blob([buffer], { type: "model/stl" });
   }
@@ -498,6 +589,65 @@ export class SlicerScene {
       roughness: 0.55,
       metalness: 0.04,
     });
+  }
+
+  private normalizeCadDefinition(definition: CadDefinition): CadDefinition {
+    const finite = (value: number, fallback: number) => Number.isFinite(value) ? value : fallback;
+    const diameter = Math.max(0.5, finite(definition.diameter, 30));
+    return {
+      kind: definition.kind,
+      width: Math.max(0.5, finite(definition.width, 30)),
+      depth: Math.max(0.5, finite(definition.depth, 30)),
+      height: Math.max(0.5, finite(definition.height, 20)),
+      diameter,
+      topDiameter: Math.max(0, finite(definition.topDiameter, 0)),
+      innerDiameter: Math.max(0.25, Math.min(diameter - 0.25, finite(definition.innerDiameter, diameter / 2))),
+    };
+  }
+
+  private createCadGeometry(definition: CadDefinition): THREE.BufferGeometry {
+    let geometry: THREE.BufferGeometry;
+    const radius = definition.diameter / 2;
+
+    switch (definition.kind) {
+      case "box":
+        geometry = new THREE.BoxGeometry(definition.width, definition.depth, definition.height);
+        break;
+      case "cylinder":
+        geometry = new THREE.CylinderGeometry(radius, radius, definition.height, 64);
+        geometry.rotateX(Math.PI / 2);
+        break;
+      case "sphere":
+        geometry = new THREE.SphereGeometry(radius, 64, 32);
+        break;
+      case "cone":
+        geometry = new THREE.CylinderGeometry(definition.topDiameter / 2, radius, definition.height, 64);
+        geometry.rotateX(Math.PI / 2);
+        break;
+      case "tube": {
+        const shape = new THREE.Shape();
+        shape.absarc(0, 0, radius, 0, Math.PI * 2, false);
+        const hole = new THREE.Path();
+        hole.absarc(0, 0, definition.innerDiameter / 2, 0, Math.PI * 2, true);
+        shape.holes.push(hole);
+        geometry = new THREE.ExtrudeGeometry(shape, {
+          depth: definition.height,
+          bevelEnabled: false,
+          curveSegments: 64,
+          steps: 1,
+        });
+        break;
+      }
+    }
+
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox!;
+    const center = box.getCenter(new THREE.Vector3());
+    geometry.translate(-center.x, -center.y, -box.min.z);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
   }
 
   private prepareMaterials(object: THREE.Object3D, index: number): void {
@@ -700,6 +850,7 @@ export class SlicerScene {
       color: `#${entry.color.getHexString()}`,
       selected,
       triangleCount,
+      cad: entry.cad ? { ...entry.cad } : null,
       dimensions: {
         x: Number(size.x.toFixed(2)),
         y: Number(size.y.toFixed(2)),

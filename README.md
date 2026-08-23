@@ -1,6 +1,6 @@
 # K2 SE Browser Slicer
 
-A local-first slicer for the Creality K2 SE. Upload an STL or 3MF, arrange it on the printer plate, choose PLA settings, slice, inspect the layers, and download G-code without installing a desktop slicer.
+A local-first slicer and simple CAD workspace for the Creality K2 SE. Create a basic part or upload an STL/3MF, arrange it on the printer plate, choose PLA settings, slice, inspect the layers, and download G-code without installing a desktop slicer.
 
 **Use it online:** [mailtojaykanchan-del.github.io/k2-se-browser-slicer](https://mailtojaykanchan-del.github.io/k2-se-browser-slicer/)
 
@@ -60,6 +60,8 @@ The `dist` directory includes the slicing engine under `kiri/` and its WebAssemb
 
 ## Features
 
+- CAD mode with editable boxes, cylinders, spheres, cones, and tubes
+- CAD STL export plus isometric, top, front, and right camera views
 - STL upload and browser preview
 - 3MF upload and preview when its geometry can be parsed
 - Orbit, pan, and zoom
