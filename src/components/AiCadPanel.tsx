@@ -49,6 +49,7 @@ export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
         <span>Cone</span>
         <span>Tube</span>
         <span>Basketball</span>
+        <span>Airless ball</span>
       </div>
     </section>
   );

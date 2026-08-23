@@ -9,7 +9,7 @@ import { strToU8, zipSync } from "fflate";
 import { K2_SE_PROFILE } from "../../shared/profile";
 
 export type TransformMode = "translate" | "rotate" | "scale";
-export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube" | "basketball";
+export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube" | "basketball" | "airlessBall";
 export type CameraView = "iso" | "top" | "front" | "right";
 export type ModelFileFormat = "stl" | "3mf";
 
@@ -802,6 +802,32 @@ export class SlicerScene {
         const seamXZ = seamXY.clone().rotateX(Math.PI / 2);
         const seamYZ = seamXY.clone().rotateY(Math.PI / 2);
         geometry = mergeGeometries([ball, seamXY, seamXZ, seamYZ], false) ?? ball;
+        break;
+      }
+      case "airlessBall": {
+        const cage = new THREE.IcosahedronGeometry(radius * 0.96, 1);
+        const edges = new THREE.EdgesGeometry(cage, 1);
+        const positions = edges.getAttribute("position");
+        const struts: THREE.BufferGeometry[] = [];
+        const start = new THREE.Vector3();
+        const end = new THREE.Vector3();
+        const midpoint = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        const up = new THREE.Vector3(0, 1, 0);
+        for (let index = 0; index < positions.count; index += 2) {
+          start.fromBufferAttribute(positions, index);
+          end.fromBufferAttribute(positions, index + 1);
+          direction.subVectors(end, start);
+          const length = direction.length();
+          midpoint.addVectors(start, end).multiplyScalar(0.5);
+          const strut = new THREE.CylinderGeometry(Math.max(0.55, radius * 0.045), Math.max(0.55, radius * 0.045), length, 8);
+          strut.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, direction.normalize()));
+          strut.translate(midpoint.x, midpoint.y, midpoint.z);
+          struts.push(strut);
+        }
+        geometry = mergeGeometries(struts, false) ?? cage;
+        edges.dispose();
+        cage.dispose();
         break;
       }
       case "cone":

@@ -81,4 +81,4 @@ The original PrusaSlicer/SuperSlicer wrapper remains available for development o
 
 Kiri:Moto is an open-source Grid.Space project distributed under the MIT license. The bundled license is in `public/kiri/LICENSE.md`. See the [Kiri:Moto documentation](https://docs.grid.space/kiri-moto/) and [GridSpace/grid-apps repository](https://github.com/GridSpace/grid-apps).
 
-Quick CAD interprets common shape names and dimensions entirely in the page. It supports boxes, cylinders, spheres, cones, tubes, and a printable basketball with raised seams. It intentionally does not claim to generate people, likenesses, or arbitrary freeform meshes.
+Quick CAD interprets common shape names and dimensions entirely in the page. It supports boxes, cylinders, spheres, cones, tubes, a printable basketball with raised seams, and an open strut-lattice airless ball. It intentionally does not claim to generate people, likenesses, or arbitrary freeform meshes.

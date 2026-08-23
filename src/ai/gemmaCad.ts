@@ -12,7 +12,7 @@ export async function generateCadPlan(prompt: string): Promise<{ parts: AiCadPar
 
 function normalizePart(raw: unknown): AiCadPart {
   const value = raw as Record<string, unknown>;
-  const allowed: CadPrimitiveKind[] = ["box", "cylinder", "sphere", "cone", "tube", "basketball"];
+  const allowed: CadPrimitiveKind[] = ["box", "cylinder", "sphere", "cone", "tube", "basketball", "airlessBall"];
   const kind = allowed.includes(value.kind as CadPrimitiveKind) ? value.kind as CadPrimitiveKind : "box";
   const defaults = defaultCadDefinition(kind);
   const number = (key: string, fallback: number, min = 0.5) => {
@@ -47,12 +47,15 @@ function clampPosition(value: unknown, min: number, max: number): number {
 function parsePromptLocally(prompt: string): AiCadPart[] {
   const lower = prompt.toLowerCase();
   const isBasketball = /basket\s*ball/.test(lower);
+  const isAirlessBall = lower.includes("airless") && lower.includes("ball");
   const dimensions = [...lower.matchAll(/(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?))?/g)][0];
-  const mentionsSupportedShape = isBasketball || ["box", "cube", "cylinder", "sphere", "ball", "cone", "tube", "ring"].some((word) => lower.includes(word));
+  const mentionsSupportedShape = isBasketball || isAirlessBall || ["box", "cube", "cylinder", "sphere", "ball", "cone", "tube", "ring"].some((word) => lower.includes(word));
   if (!mentionsSupportedShape && !dimensions) {
     throw new Error("This CAD builder supports simple boxes, cylinders, spheres, cones, and tubes. It cannot recreate a person or likeness.");
   }
-  const kind: CadPrimitiveKind = isBasketball
+  const kind: CadPrimitiveKind = isAirlessBall
+    ? "airlessBall"
+    : isBasketball
     ? "basketball"
     : lower.includes("tube") || lower.includes("ring")
     ? "tube"
