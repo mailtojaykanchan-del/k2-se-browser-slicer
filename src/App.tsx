@@ -255,13 +255,23 @@ function App() {
     try {
       const plan = await generateCadPlan(prompt, setAiStatus);
       invalidateSliceResult();
-      sceneRef.current.deleteModels(quickCadIdsRef.current);
-      quickCadIdsRef.current = [];
+      const previousIds = quickCadIdsRef.current;
+      const nextIds: string[] = [];
       for (const part of plan.parts) {
         const id = sceneRef.current.createCadPrimitive(part.definition);
-        quickCadIdsRef.current.push(id);
+        nextIds.push(id);
         sceneRef.current.updateSelectedTransform({ position: part.position });
       }
+      let resultId: string | null = nextIds[0] ?? null;
+      if (nextIds.length > 1) {
+        resultId = sceneRef.current.connectModels(nextIds);
+        if (!resultId) {
+          sceneRef.current.deleteModels(nextIds);
+          throw new Error("The generated parts did not actually connect. Try Generate CAD again.");
+        }
+      }
+      sceneRef.current.deleteModels(previousIds);
+      quickCadIdsRef.current = resultId ? [resultId] : [];
       sceneRef.current.setCameraView("iso");
       setAiStatus(`${plan.engine === "cloud" ? "AI" : "Quick CAD"} created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`);
     } catch (error) {

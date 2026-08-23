@@ -421,10 +421,36 @@ export class SlicerScene {
       return 0;
     }
 
+    this.connectEntries(connected);
+    return connected.size;
+  }
+
+  connectModels(ids: Iterable<string>): string | null {
+    const entries = [...ids].map(id => this.models.get(id)).filter((entry): entry is ModelEntry => Boolean(entry));
+    if (entries.length < 2) return entries[0]?.id ?? null;
+    const allowed = new Set(entries);
+    const connected = new Set<ModelEntry>([entries[0]]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const candidate of allowed) {
+        if (connected.has(candidate)) continue;
+        if ([...connected].some(entry => this.objectsTouch(entry.object, candidate.object))) {
+          connected.add(candidate);
+          changed = true;
+        }
+      }
+    }
+    if (connected.size !== entries.length) return null;
+    return this.connectEntries(connected);
+  }
+
+  private connectEntries(connected: Set<ModelEntry>): string {
+
     this.transform.detach();
     const id = crypto.randomUUID();
     const object = new THREE.Group();
-    const color = selected.color.clone();
+    const color = connected.values().next().value!.color.clone();
 
     for (const entry of connected) {
       entry.object.updateMatrixWorld(true);
@@ -470,7 +496,7 @@ export class SlicerScene {
     this.transform.attach(object);
     this.onError(null);
     this.sync();
-    return connected.size;
+    return id;
   }
 
   deleteSelected(): void {

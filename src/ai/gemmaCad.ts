@@ -24,15 +24,19 @@ export async function generateCadPlan(
 ): Promise<{ parts: AiCadPart[]; engine: "cloud" | "parser" }> {
   if (window.puter?.ai) {
     let lastError: unknown;
+    let feedback = "";
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       progress?.(`AI design attempt ${attempt} of 3`);
       try {
-        const response = await window.puter.ai.chat(buildCadPrompt(prompt, attempt), { model: "gpt-5-nano" });
+        const response = await window.puter.ai.chat(buildCadPrompt(prompt, attempt, feedback), { model: "gpt-5-nano" });
         const text = typeof response === "string" ? response : response.message?.content;
         if (typeof text !== "string") throw new Error("The AI returned no text plan.");
-        return { parts: normalizePlan(extractJson(text)), engine: "cloud" };
+        const parts = normalizePlan(extractJson(text));
+        validateAssembly(parts);
+        return { parts, engine: "cloud" };
       } catch (error) {
         lastError = error;
+        feedback = error instanceof Error ? error.message : String(error);
       }
     }
 
@@ -49,11 +53,11 @@ export async function generateCadPlan(
   return { parts: parsePromptLocally(prompt), engine: "parser" };
 }
 
-function buildCadPrompt(request: string, attempt: number): string {
+function buildCadPrompt(request: string, attempt: number, feedback: string): string {
   return `You are a CAD planner. Convert the request into a simple printable assembly made only from these primitives: box, cylinder, sphere, cone, tube, basketball, airlessBall.
 Return JSON only, with no markdown, using exactly this schema:
 {"parts":[{"kind":"box","width":30,"depth":30,"height":20,"diameter":30,"topDiameter":0,"innerDiameter":18,"x":0,"y":0,"z":0}]}
-Use millimeters and 1 to 12 parts. Keep every dimension between 0.8 and 220. For tubes, innerDiameter must be smaller than diameter. Parts should overlap when they are intended to form one object. The K2 SE plate is 220 x 215 x 245 mm. Approximate complex objects with recognizable primitive assemblies. This is validation attempt ${attempt}; carefully return valid JSON. User request: ${request}`;
+Coordinates x and y are the center of each part. Coordinate z is the bottom of each part, not its center. Use millimeters and 1 to 12 parts. Keep every dimension between 0.8 and 220. For tubes, innerDiameter must be smaller than diameter. Every part in a multi-part design MUST touch or overlap another part, and all parts together MUST form one connected assembly. Keep the complete assembly inside x -110..110, y -107..107, z 0..245. Approximate complex objects with recognizable connected primitive assemblies. This is validation attempt ${attempt}.${feedback ? ` The previous attempt failed validation: ${feedback}. Correct that problem.` : ""} Return valid JSON only. User request: ${request}`;
 }
 
 function extractJson(text: string): unknown {
@@ -68,6 +72,53 @@ function normalizePlan(input: unknown): AiCadPart[] {
   const rawParts = (input as { parts?: unknown })?.parts;
   if (!Array.isArray(rawParts) || rawParts.length === 0) throw new Error("The AI plan contains no parts.");
   return rawParts.slice(0, 12).map(normalizePart);
+}
+
+function validateAssembly(parts: AiCadPart[]): void {
+  const bounds = parts.map(partBounds);
+  for (const box of bounds) {
+    if (box.minX < -110 || box.maxX > 110 || box.minY < -107.5 || box.maxY > 107.5 || box.minZ < 0 || box.maxZ > 245) {
+      throw new Error("The assembly exceeds the K2 SE build volume.");
+    }
+  }
+  if (parts.length < 2) return;
+  const reached = new Set<number>([0]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let index = 0; index < bounds.length; index += 1) {
+      if (reached.has(index)) continue;
+      if ([...reached].some(other => boxesTouch(bounds[index], bounds[other], 1.25))) {
+        reached.add(index);
+        changed = true;
+      }
+    }
+  }
+  if (reached.size !== parts.length) throw new Error("The parts do not form one connected assembly.");
+}
+
+interface PartBounds { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number }
+
+function partBounds(part: AiCadPart): PartBounds {
+  const { definition, position } = part;
+  const round = ["cylinder", "sphere", "cone", "tube", "basketball", "airlessBall"].includes(definition.kind);
+  const width = round ? definition.diameter : definition.width;
+  const depth = round ? definition.diameter : definition.depth;
+  const height = ["sphere", "basketball", "airlessBall"].includes(definition.kind) ? definition.diameter : definition.height;
+  return {
+    minX: position.x - width / 2,
+    maxX: position.x + width / 2,
+    minY: position.y - depth / 2,
+    maxY: position.y + depth / 2,
+    minZ: position.z,
+    maxZ: position.z + height,
+  };
+}
+
+function boxesTouch(a: PartBounds, b: PartBounds, tolerance: number): boolean {
+  return a.minX <= b.maxX + tolerance && a.maxX + tolerance >= b.minX
+    && a.minY <= b.maxY + tolerance && a.maxY + tolerance >= b.minY
+    && a.minZ <= b.maxZ + tolerance && a.maxZ + tolerance >= b.minZ;
 }
 
 function normalizePart(raw: unknown): AiCadPart {
