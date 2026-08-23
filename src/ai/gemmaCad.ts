@@ -20,10 +20,18 @@ export async function loadGemma(progress: (message: string) => void): Promise<vo
   if (generator) return;
   progress("Loading Gemma runtime");
   const transformers = await import(/* @vite-ignore */ RUNTIME_URL) as {
-    env: { allowLocalModels: boolean };
+    env: {
+      allowLocalModels: boolean;
+      backends?: { onnx?: { wasm?: { numThreads?: number } } };
+    };
     pipeline: (task: string, model: string, options: Record<string, unknown>) => Promise<TextGenerator>;
   };
   transformers.env.allowLocalModels = false;
+  // GitHub Pages cannot set COOP/COEP headers. Single-threaded WASM avoids
+  // SharedArrayBuffer while preserving a local, no-key CPU fallback.
+  if (!globalThis.crossOriginIsolated && transformers.env.backends?.onnx?.wasm) {
+    transformers.env.backends.onnx.wasm.numThreads = 1;
+  }
   const reportProgress = (backend: string) => (event: { status?: string; file?: string; progress?: number }) => {
     const percent = Number.isFinite(event.progress) ? ` ${Math.round(event.progress!)}%` : "";
     progress(`${backend}: ${event.status ?? "Loading"}${event.file ? ` ${event.file}` : ""}${percent}`);
@@ -47,6 +55,7 @@ export async function loadGemma(progress: (message: string) => void): Promise<vo
     progress("WebGPU is unavailable. Trying CPU mode");
   }
 
+  progress(globalThis.crossOriginIsolated ? "Starting CPU mode" : "Starting compatible CPU mode");
   generator = await transformers.pipeline("text-generation", MODEL_ID, {
     device: "wasm",
     dtype: "q8",
