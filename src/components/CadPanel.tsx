@@ -1,5 +1,4 @@
 import {
-  ArrowRight,
   Box,
   Circle,
   CircleDot,
@@ -7,7 +6,6 @@ import {
   Cone,
   Cylinder,
   Download,
-  FileCog,
   Plus,
   RefreshCw,
   Shapes,
@@ -52,9 +50,6 @@ interface CadPanelProps {
   onDownload: () => void;
   onConnect: () => void;
   onView: (view: CameraView) => void;
-  onConvert: (source: "cad" | "stl" | "3mf", output: "stl" | "3mf") => void;
-  converting: boolean;
-  conversionNotice: string | null;
 }
 
 export function CadPanel({
@@ -69,9 +64,6 @@ export function CadPanel({
   onDownload,
   onConnect,
   onView,
-  onConvert,
-  converting,
-  conversionNotice,
 }: CadPanelProps) {
   const patch = (next: Partial<CadDefinition>) => onChange({ ...definition, ...next });
 
@@ -148,31 +140,7 @@ export function CadPanel({
         ))}
       </div>
 
-      <div className="cadConverter">
-        <div className="sectionTitle">
-          <FileCog size={16} />
-          <h2>File Converter</h2>
-          <span>local</span>
-        </div>
-        <div className="converterGrid">
-          <ConvertButton source="CAD" output="STL" disabled={!selectedIsCad || converting} onClick={() => onConvert("cad", "stl")} />
-          <ConvertButton source="CAD" output="3MF" disabled={!selectedIsCad || converting} onClick={() => onConvert("cad", "3mf")} />
-          <ConvertButton source="3MF" output="STL" disabled={converting} onClick={() => onConvert("3mf", "stl")} />
-          <ConvertButton source="STL" output="3MF" disabled={converting} onClick={() => onConvert("stl", "3mf")} />
-        </div>
-        {conversionNotice && <p className="conversionNotice" role="status">{conversionNotice}</p>}
-      </div>
     </section>
-  );
-}
-
-function ConvertButton({ source, output, disabled, onClick }: { source: string; output: string; disabled: boolean; onClick: () => void }) {
-  return (
-    <button type="button" disabled={disabled} onClick={onClick} aria-label={`Convert ${source} to ${output}`}>
-      <strong>{source}</strong>
-      <ArrowRight size={14} />
-      <strong>{output}</strong>
-    </button>
   );
 }
 

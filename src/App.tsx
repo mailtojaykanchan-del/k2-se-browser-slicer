@@ -7,6 +7,7 @@ import {
   Copy,
   Crosshair,
   Download,
+  ArrowRightLeft,
   FileUp,
   Grid3X3,
   LoaderCircle,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CadPanel, defaultCadDefinition } from "./components/CadPanel";
+import { ConverterPanel } from "./components/ConverterPanel";
 import { LayerPreview, type LayerPreviewLayer } from "./components/LayerPreview";
 import { formatDuration, formatGrams, formatMetersFromMm, formatMm } from "./lib/format";
 import {
@@ -70,7 +72,7 @@ interface SliceResult {
 }
 
 const numberFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-type WorkspaceMode = "prepare" | "cad";
+type WorkspaceMode = "prepare" | "cad" | "convert";
 
 function plateSignature(models: ModelSnapshot[]): string {
   return JSON.stringify(
@@ -415,6 +417,10 @@ function App() {
               <Box size={16} />
               CAD
             </button>
+            <button type="button" role="tab" aria-selected={workspaceMode === "convert"} className={workspaceMode === "convert" ? "selected" : ""} onClick={() => changeWorkspaceMode("convert")}>
+              <ArrowRightLeft size={16} />
+              Convert
+            </button>
           </div>
           <span className={`enginePill ${sliceResult ? "ok" : "warn"}`} role="status" aria-live="polite">
             {isSlicing
@@ -464,9 +470,13 @@ function App() {
               onDownload={downloadSelectedStl}
               onConnect={() => sceneRef.current?.connectTouchingModels()}
               onView={setCameraView}
-              onConvert={startConversion}
+            />
+          ) : workspaceMode === "convert" ? (
+            <ConverterPanel
+              selectedCadName={selectedModel?.cad || selectedModel?.connected ? selectedModel.name : null}
               converting={busyMessage?.startsWith("Converting ") ?? false}
-              conversionNotice={conversionNotice}
+              notice={conversionNotice}
+              onConvert={startConversion}
             />
           ) : (
             <DropZone onFiles={handleFiles} busy={busyMessage?.startsWith("Loading model:") ? busyMessage : null} />
@@ -603,7 +613,7 @@ function App() {
           <div className="statusStrip">
             <Metric label="Plate" value={`${K2_SE_PROFILE.buildVolume.x} x ${K2_SE_PROFILE.buildVolume.y} mm`} />
             <Metric label="Height" value={`${K2_SE_PROFILE.buildVolume.z} mm`} />
-            <Metric label="Workspace" value={workspaceMode === "cad" ? "CAD" : "Prepare"} />
+            <Metric label="Workspace" value={workspaceMode === "cad" ? "CAD" : workspaceMode === "convert" ? "Convert" : "Prepare"} />
             <Metric label="Profile" value="PLA, single filament" />
           </div>
         </section>

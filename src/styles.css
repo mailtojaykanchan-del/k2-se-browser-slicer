@@ -110,7 +110,7 @@ h1 {
 
 .workspaceModeSwitch {
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   overflow: hidden;
@@ -419,11 +419,27 @@ h1 {
   color: #1c2a35;
 }
 
-.cadConverter {
+.converterPanel {
   display: grid;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+  align-content: start;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.converterPanel .sectionTitle {
+  margin-bottom: 0;
+}
+
+.converterSelection {
+  border-left: 4px solid var(--accent);
+  border-radius: 4px;
+  background: #fff7f1;
+  padding: 9px 10px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .converterGrid {
@@ -434,7 +450,7 @@ h1 {
 
 .converterGrid button {
   min-width: 0;
-  min-height: 35px;
+  min-height: 54px;
   border: 1px solid var(--line-strong);
   border-radius: 7px;
   background: #fff;
@@ -458,7 +474,7 @@ h1 {
 }
 
 .converterGrid strong {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0;
 }
 
