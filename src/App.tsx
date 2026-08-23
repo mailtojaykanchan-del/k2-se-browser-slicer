@@ -273,6 +273,7 @@ function App() {
       sceneRef.current.deleteModels(previousIds);
       quickCadIdsRef.current = resultId ? [resultId] : [];
       sceneRef.current.setCameraView("iso");
+      sceneRef.current.focusSelected();
       setAiStatus(`${plan.engine === "cloud" ? "AI" : "Quick CAD"} created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`);
     } catch (error) {
       setAiStatus(error instanceof Error ? error.message : "Could not generate this CAD model");

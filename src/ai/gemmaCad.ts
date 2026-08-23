@@ -31,7 +31,7 @@ export async function generateCadPlan(
         const response = await window.puter.ai.chat(buildCadPrompt(prompt, attempt, feedback), { model: "gpt-5-nano" });
         const text = typeof response === "string" ? response : response.message?.content;
         if (typeof text !== "string") throw new Error("The AI returned no text plan.");
-        const parts = normalizePlan(extractJson(text));
+        const parts = normalizeAssembly(normalizePlan(extractJson(text)));
         validateAssembly(parts);
         return { parts, engine: "cloud" };
       } catch (error) {
@@ -57,7 +57,7 @@ function buildCadPrompt(request: string, attempt: number, feedback: string): str
   return `You are a CAD planner. Convert the request into a simple printable assembly made only from these primitives: box, cylinder, sphere, cone, tube, basketball, airlessBall.
 Return JSON only, with no markdown, using exactly this schema:
 {"parts":[{"kind":"box","width":30,"depth":30,"height":20,"diameter":30,"topDiameter":0,"innerDiameter":18,"x":0,"y":0,"z":0}]}
-Coordinates x and y are the center of each part. Coordinate z is the bottom of each part, not its center. Use millimeters and 1 to 12 parts. Keep every dimension between 0.8 and 220. For tubes, innerDiameter must be smaller than diameter. Every part in a multi-part design MUST touch or overlap another part, and all parts together MUST form one connected assembly. Keep the complete assembly inside x -110..110, y -107..107, z 0..245. Approximate complex objects with recognizable connected primitive assemblies. This is validation attempt ${attempt}.${feedback ? ` The previous attempt failed validation: ${feedback}. Correct that problem.` : ""} Return valid JSON only. User request: ${request}`;
+Coordinates x and y are the center of each part. Coordinate z is the bottom of each part, not its center. Use millimeters and 1 to 12 parts. Make an ordinary unspecified object about 60 to 90 mm across, never larger than 100 mm unless the user gives dimensions. Keep every primitive dimension between 0.8 and 100. For tubes, innerDiameter must be smaller than diameter. Every part in a multi-part design MUST touch or overlap another part, and all parts together MUST form one connected assembly. Center the assembly near x=0 and y=0, place its lowest point at z=0, and keep it upright. Approximate complex objects with recognizable proportions and connected primitive assemblies. This is validation attempt ${attempt}.${feedback ? ` The previous attempt failed validation: ${feedback}. Correct that problem.` : ""} Return valid JSON only. User request: ${request}`;
 }
 
 function extractJson(text: string): unknown {
@@ -72,6 +72,37 @@ function normalizePlan(input: unknown): AiCadPart[] {
   const rawParts = (input as { parts?: unknown })?.parts;
   if (!Array.isArray(rawParts) || rawParts.length === 0) throw new Error("The AI plan contains no parts.");
   return rawParts.slice(0, 12).map(normalizePart);
+}
+
+function normalizeAssembly(parts: AiCadPart[]): AiCadPart[] {
+  const initial = parts.map(partBounds);
+  const minX = Math.min(...initial.map(box => box.minX));
+  const maxX = Math.max(...initial.map(box => box.maxX));
+  const minY = Math.min(...initial.map(box => box.minY));
+  const maxY = Math.max(...initial.map(box => box.maxY));
+  const minZ = Math.min(...initial.map(box => box.minZ));
+  const maxZ = Math.max(...initial.map(box => box.maxZ));
+  const largestSpan = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+  const scale = largestSpan > 100 ? 100 / largestSpan : largestSpan < 20 ? 20 / Math.max(largestSpan, 0.1) : 1;
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  return parts.map(part => ({
+    definition: {
+      ...part.definition,
+      width: part.definition.width * scale,
+      depth: part.definition.depth * scale,
+      height: part.definition.height * scale,
+      diameter: part.definition.diameter * scale,
+      topDiameter: part.definition.topDiameter * scale,
+      innerDiameter: part.definition.innerDiameter * scale,
+    },
+    position: {
+      x: (part.position.x - centerX) * scale,
+      y: (part.position.y - centerY) * scale,
+      z: (part.position.z - minZ) * scale,
+    },
+  }));
 }
 
 function validateAssembly(parts: AiCadPart[]): void {
