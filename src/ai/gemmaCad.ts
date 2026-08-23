@@ -46,12 +46,13 @@ function clampPosition(value: unknown, min: number, max: number): number {
 
 function parsePromptLocally(prompt: string): AiCadPart[] {
   const lower = prompt.toLowerCase();
+  const isBasketball = /basket\s*ball/.test(lower);
   const dimensions = [...lower.matchAll(/(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?))?/g)][0];
-  const mentionsSupportedShape = ["box", "cube", "cylinder", "sphere", "ball", "basketball", "cone", "tube", "ring"].some((word) => lower.includes(word));
+  const mentionsSupportedShape = isBasketball || ["box", "cube", "cylinder", "sphere", "ball", "cone", "tube", "ring"].some((word) => lower.includes(word));
   if (!mentionsSupportedShape && !dimensions) {
     throw new Error("This CAD builder supports simple boxes, cylinders, spheres, cones, and tubes. It cannot recreate a person or likeness.");
   }
-  const kind: CadPrimitiveKind = lower.includes("basketball")
+  const kind: CadPrimitiveKind = isBasketball
     ? "basketball"
     : lower.includes("tube") || lower.includes("ring")
     ? "tube"
