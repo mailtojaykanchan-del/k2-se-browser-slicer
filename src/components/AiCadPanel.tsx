@@ -43,9 +43,9 @@ export function AiCadPanel({ modelLoaded, busy, status, onLoadModel, onGenerate 
         />
       </label>
 
-      <button className="aiGenerateButton" type="button" disabled={busy || prompt.trim().length < 3} onClick={() => onGenerate(prompt.trim())}>
+      <button className="aiGenerateButton" type="button" disabled={!modelLoaded || busy || prompt.trim().length < 3} onClick={() => onGenerate(prompt.trim())}>
         {busy ? <LoaderCircle size={18} className="spin" /> : <Sparkles size={18} />}
-        Generate CAD
+        {modelLoaded ? "Generate CAD" : "Load Gemma first"}
       </button>
 
       <div className="aiCapabilityRow">

@@ -264,6 +264,10 @@ function App() {
 
   async function generateAiCad(prompt: string) {
     if (!sceneRef.current || aiBusy) return;
+    if (!aiModelLoaded) {
+      setAiStatus("Load Gemma before generating CAD");
+      return;
+    }
     setAiBusy(true);
     setSliceError(null);
     try {
