@@ -40,7 +40,7 @@ import {
 import { sliceInBrowser, type BrowserSliceProgress } from "./slicing/kiriEngine";
 import { K2_SE_PROFILE } from "../shared/profile";
 import { parseGcode } from "../shared/gcodeParser";
-import { generateCadPlan, isGemmaLoaded, loadGemma } from "./ai/gemmaCad";
+import { errorMessage, generateCadPlan, isGemmaLoaded, loadGemma } from "./ai/gemmaCad";
 import {
   DEFAULT_PRINT_SETTINGS,
   type AdhesionMode,
@@ -256,7 +256,7 @@ function App() {
       setAiModelLoaded(true);
       setAiStatus("Ready on this device");
     } catch (error) {
-      setAiStatus(error instanceof Error ? `Gemma unavailable: ${error.message}` : "Gemma could not load");
+      setAiStatus(`Gemma unavailable: ${errorMessage(error)}`);
     } finally {
       setAiBusy(false);
     }

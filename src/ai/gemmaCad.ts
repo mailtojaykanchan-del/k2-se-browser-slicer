@@ -24,15 +24,45 @@ export async function loadGemma(progress: (message: string) => void): Promise<vo
     pipeline: (task: string, model: string, options: Record<string, unknown>) => Promise<TextGenerator>;
   };
   transformers.env.allowLocalModels = false;
+  const reportProgress = (backend: string) => (event: { status?: string; file?: string; progress?: number }) => {
+    const percent = Number.isFinite(event.progress) ? ` ${Math.round(event.progress!)}%` : "";
+    progress(`${backend}: ${event.status ?? "Loading"}${event.file ? ` ${event.file}` : ""}${percent}`);
+  };
+
+  if ("gpu" in navigator) {
+    try {
+      progress("Trying fast WebGPU mode");
+      generator = await transformers.pipeline("text-generation", MODEL_ID, {
+        device: "webgpu",
+        dtype: "q4",
+        progress_callback: reportProgress("WebGPU"),
+      });
+      progress("Gemma ready with WebGPU");
+      return;
+    } catch (error) {
+      generator = null;
+      progress(`WebGPU unavailable (${errorMessage(error)}). Trying CPU mode`);
+    }
+  } else {
+    progress("WebGPU is unavailable. Trying CPU mode");
+  }
+
   generator = await transformers.pipeline("text-generation", MODEL_ID, {
-    device: "webgpu",
-    dtype: "q4",
-    progress_callback: (event: { status?: string; file?: string; progress?: number }) => {
-      const percent = Number.isFinite(event.progress) ? ` ${Math.round(event.progress!)}%` : "";
-      progress(`${event.status ?? "Loading"}${event.file ? ` ${event.file}` : ""}${percent}`);
-    },
+    device: "wasm",
+    dtype: "q8",
+    progress_callback: reportProgress("CPU"),
   });
-  progress("Gemma ready");
+  progress("Gemma ready with CPU mode");
+}
+
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "unknown browser error";
+  }
 }
 
 export async function generateCadPlan(prompt: string): Promise<{ parts: AiCadPart[]; engine: "gemma" | "parser" }> {
