@@ -61,7 +61,7 @@ The `dist` directory includes the slicing engine under `kiri/` and its WebAssemb
 ## Features
 
 - CAD mode with editable boxes, cylinders, spheres, cones, and tubes
-- AI CAD workspace with optional local Gemma 3 1B generation through WebGPU and no API key
+- Quick CAD workspace with a built-in natural-language shape interpreter and no download or API key
 - Connect touching or slightly overlapping solids into one movable, exportable, printable compound
 - CAD STL export plus isometric, top, front, and right camera views
 - Dedicated Convert workspace for local CAD-to-STL, CAD-to-3MF, STL-to-3MF, and 3MF-to-STL conversion
@@ -81,6 +81,4 @@ The original PrusaSlicer/SuperSlicer wrapper remains available for development o
 
 Kiri:Moto is an open-source Grid.Space project distributed under the MIT license. The bundled license is in `public/kiri/LICENSE.md`. See the [Kiri:Moto documentation](https://docs.grid.space/kiri-moto/) and [GridSpace/grid-apps repository](https://github.com/GridSpace/grid-apps).
 
-The optional AI CAD model runs locally through Transformers.js and needs a one-time model download. It tries fast WebGPU first and automatically retries with the slower CPU/WASM backend when WebGPU is unavailable. On static hosts such as GitHub Pages, the CPU fallback uses single-threaded WASM so it does not require cross-origin isolation or `SharedArrayBuffer`. AI generation stays disabled until Gemma is ready, so fallback geometry is never presented as model-generated output.
-
-The static build also registers the MIT-licensed `coi-serviceworker` bootstrap so ONNX can use an isolated browser context on GitHub Pages. The first visit after an update may reload once while the service worker takes control.
+Quick CAD interprets common shape names and dimensions entirely in the page. It supports boxes, cylinders, spheres, cones, and tubes. It intentionally does not claim to generate people, likenesses, or arbitrary freeform meshes.

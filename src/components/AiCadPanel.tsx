@@ -2,14 +2,12 @@ import { Bot, Box, BrainCircuit, LoaderCircle, Sparkles } from "lucide-react";
 import { useState } from "react";
 
 interface AiCadPanelProps {
-  modelLoaded: boolean;
   busy: boolean;
   status: string;
-  onLoadModel: () => void;
   onGenerate: (prompt: string) => void;
 }
 
-export function AiCadPanel({ modelLoaded, busy, status, onLoadModel, onGenerate }: AiCadPanelProps) {
+export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
   const [prompt, setPrompt] = useState("");
 
   return (
@@ -20,18 +18,13 @@ export function AiCadPanel({ modelLoaded, busy, status, onLoadModel, onGenerate 
         <span>local</span>
       </div>
 
-      <div className={`aiModelStatus ${modelLoaded ? "ready" : ""}`}>
+      <div className="aiModelStatus ready">
         <Bot size={18} />
         <span>
-          <strong>{modelLoaded ? "Gemma ready" : "Gemma 3 1B"}</strong>
+          <strong>Quick CAD ready</strong>
           <small>{status}</small>
         </span>
       </div>
-
-      <button className="aiLoadButton" type="button" disabled={modelLoaded || busy} onClick={onLoadModel}>
-        {busy && !modelLoaded ? <LoaderCircle size={17} className="spin" /> : <BrainCircuit size={17} />}
-        {modelLoaded ? "Model loaded" : "Load Gemma"}
-      </button>
 
       <label className="aiPromptField">
         <span>Describe a printable part</span>
@@ -43,9 +36,9 @@ export function AiCadPanel({ modelLoaded, busy, status, onLoadModel, onGenerate 
         />
       </label>
 
-      <button className="aiGenerateButton" type="button" disabled={!modelLoaded || busy || prompt.trim().length < 3} onClick={() => onGenerate(prompt.trim())}>
+      <button className="aiGenerateButton" type="button" disabled={busy || prompt.trim().length < 3} onClick={() => onGenerate(prompt.trim())}>
         {busy ? <LoaderCircle size={18} className="spin" /> : <Sparkles size={18} />}
-        {modelLoaded ? "Generate CAD" : "Load Gemma first"}
+        Generate CAD
       </button>
 
       <div className="aiCapabilityRow">

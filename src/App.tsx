@@ -40,7 +40,7 @@ import {
 import { sliceInBrowser, type BrowserSliceProgress } from "./slicing/kiriEngine";
 import { K2_SE_PROFILE } from "../shared/profile";
 import { parseGcode } from "../shared/gcodeParser";
-import { errorMessage, generateCadPlan, isGemmaLoaded, loadGemma } from "./ai/gemmaCad";
+import { generateCadPlan } from "./ai/gemmaCad";
 import {
   DEFAULT_PRINT_SETTINGS,
   type AdhesionMode,
@@ -104,8 +104,7 @@ function App() {
   const [sliceError, setSliceError] = useState<string | null>(null);
   const [conversionNotice, setConversionNotice] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiModelLoaded, setAiModelLoaded] = useState(isGemmaLoaded());
-  const [aiStatus, setAiStatus] = useState("Runs on this device; no API key");
+  const [aiStatus, setAiStatus] = useState("Built in; no download or API key");
   const [activeLayer, setActiveLayer] = useState(0);
   const downloadUrlRef = useRef<string | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -248,26 +247,8 @@ function App() {
     if (nextMode === "cad" || nextMode === "ai") sceneRef.current?.setCameraView("iso");
   }
 
-  async function loadLocalGemma() {
-    if (aiBusy || aiModelLoaded) return;
-    setAiBusy(true);
-    try {
-      await loadGemma(setAiStatus);
-      setAiModelLoaded(true);
-      setAiStatus("Ready on this device");
-    } catch (error) {
-      setAiStatus(`Gemma unavailable: ${errorMessage(error)}`);
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
   async function generateAiCad(prompt: string) {
     if (!sceneRef.current || aiBusy) return;
-    if (!aiModelLoaded) {
-      setAiStatus("Load Gemma before generating CAD");
-      return;
-    }
     setAiBusy(true);
     setSliceError(null);
     try {
@@ -278,9 +259,7 @@ function App() {
         sceneRef.current.updateSelectedTransform({ position: part.position });
       }
       sceneRef.current.setCameraView("iso");
-      setAiStatus(plan.engine === "gemma"
-        ? `Gemma created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`
-        : `Created ${plan.parts.length} part with the local fallback`);
+      setAiStatus(`Quick CAD created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`);
     } catch (error) {
       setAiStatus(error instanceof Error ? error.message : "Could not generate this CAD model");
     } finally {
@@ -529,10 +508,8 @@ function App() {
             />
           ) : workspaceMode === "ai" ? (
             <AiCadPanel
-              modelLoaded={aiModelLoaded}
               busy={aiBusy}
               status={aiStatus}
-              onLoadModel={() => void loadLocalGemma()}
               onGenerate={(prompt) => void generateAiCad(prompt)}
             />
           ) : (
