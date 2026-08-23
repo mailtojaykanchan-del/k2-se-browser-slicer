@@ -82,3 +82,5 @@ The original PrusaSlicer/SuperSlicer wrapper remains available for development o
 Kiri:Moto is an open-source Grid.Space project distributed under the MIT license. The bundled license is in `public/kiri/LICENSE.md`. See the [Kiri:Moto documentation](https://docs.grid.space/kiri-moto/) and [GridSpace/grid-apps repository](https://github.com/GridSpace/grid-apps).
 
 The optional AI CAD model runs locally through Transformers.js and needs a one-time model download. It tries fast WebGPU first and automatically retries with the slower CPU/WASM backend when WebGPU is unavailable. On static hosts such as GitHub Pages, the CPU fallback uses single-threaded WASM so it does not require cross-origin isolation or `SharedArrayBuffer`. AI generation stays disabled until Gemma is ready, so fallback geometry is never presented as model-generated output.
+
+The static build also registers the MIT-licensed `coi-serviceworker` bootstrap so ONNX can use an isolated browser context on GitHub Pages. The first visit after an update may reload once while the service worker takes control.
