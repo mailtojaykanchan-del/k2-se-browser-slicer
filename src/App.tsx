@@ -456,11 +456,13 @@ function App() {
               definition={cadDraft}
               selectedIsCad={Boolean(selectedModel?.cad || selectedModel?.connected)}
               selectedCanResize={Boolean(selectedModel?.cad)}
+              canConnect={Boolean(selectedModel) && models.length > 1}
               error={cadError}
               onChange={setCadDraft}
               onAdd={addCadPart}
               onApply={applyCadPart}
               onDownload={downloadSelectedStl}
+              onConnect={() => sceneRef.current?.connectTouchingModels()}
               onView={setCameraView}
               onConvert={startConversion}
               converting={busyMessage?.startsWith("Converting ") ?? false}

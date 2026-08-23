@@ -366,6 +366,30 @@ h1 {
   color: #fff;
 }
 
+.cadConnectAction {
+  min-height: 36px;
+  border: 1px solid #288473;
+  border-radius: 7px;
+  background: #eefaf7;
+  color: #176757;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.cadConnectAction:hover:not(:disabled) {
+  background: #dff5ef;
+}
+
+.cadConnectAction:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .cadViews {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

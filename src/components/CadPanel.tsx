@@ -3,6 +3,7 @@ import {
   Box,
   Circle,
   CircleDot,
+  Combine,
   Cone,
   Cylinder,
   Download,
@@ -43,11 +44,13 @@ interface CadPanelProps {
   definition: CadDefinition;
   selectedIsCad: boolean;
   selectedCanResize: boolean;
+  canConnect: boolean;
   error: string | null;
   onChange: (definition: CadDefinition) => void;
   onAdd: () => void;
   onApply: () => void;
   onDownload: () => void;
+  onConnect: () => void;
   onView: (view: CameraView) => void;
   onConvert: (source: "cad" | "stl" | "3mf", output: "stl" | "3mf") => void;
   converting: boolean;
@@ -58,11 +61,13 @@ export function CadPanel({
   definition,
   selectedIsCad,
   selectedCanResize,
+  canConnect,
   error,
   onChange,
   onAdd,
   onApply,
   onDownload,
+  onConnect,
   onView,
   onConvert,
   converting,
@@ -131,6 +136,11 @@ export function CadPanel({
           STL
         </button>
       </div>
+
+      <button className="cadConnectAction" type="button" disabled={!canConnect} onClick={onConnect}>
+        <Combine size={17} />
+        Connect touching parts
+      </button>
 
       <div className="cadViews" role="group" aria-label="Camera view">
         {(["iso", "top", "front", "right"] as CameraView[]).map((view) => (
