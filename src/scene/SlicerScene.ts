@@ -4,11 +4,13 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { strToU8, zipSync } from "fflate";
 import { K2_SE_PROFILE } from "../../shared/profile";
 
 export type TransformMode = "translate" | "rotate" | "scale";
 export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube";
 export type CameraView = "iso" | "top" | "front" | "right";
+export type ModelFileFormat = "stl" | "3mf";
 
 export interface CadDefinition {
   kind: CadPrimitiveKind;
@@ -55,6 +57,11 @@ const DEG = 180 / Math.PI;
 const RAD = Math.PI / 180;
 const MAX_MODEL_FILE_BYTES = 150 * 1024 * 1024;
 const MAX_PREVIEW_VERTICES = 4_000_000;
+
+function format3mfNumber(value: number): string {
+  const normalized = Math.abs(value) < 0.0000005 ? 0 : value;
+  return Number(normalized.toFixed(6)).toString();
+}
 
 export class SlicerScene {
   private readonly canvas: HTMLCanvasElement;
@@ -476,6 +483,92 @@ export class SlicerScene {
     const result = new STLExporter().parse(clone, { binary: true });
     const buffer = typeof result === "string" ? new TextEncoder().encode(result).buffer : result;
     return new Blob([buffer], { type: "model/stl" });
+  }
+
+  exportSelectedAs3mfBlob(): Blob | null {
+    const entry = this.selectedEntry();
+    if (!entry) return null;
+
+    const clone = entry.object.clone(true);
+    clone.position.set(0, 0, 0);
+    clone.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(clone);
+    const center = box.getCenter(new THREE.Vector3());
+    clone.position.x -= center.x;
+    clone.position.y -= center.y;
+    clone.position.z -= box.min.z;
+    clone.updateMatrixWorld(true);
+    return this.objectTo3mfBlob(clone);
+  }
+
+  async convertFile(file: File, output: ModelFileFormat): Promise<Blob> {
+    if (file.size === 0) throw new Error(`${file.name} is empty.`);
+    if (file.size > MAX_MODEL_FILE_BYTES) {
+      throw new Error(`${file.name} is larger than the 150 MB browser conversion limit.`);
+    }
+
+    const extension = file.name.toLowerCase().split(".").pop();
+    const buffer = await file.arrayBuffer();
+    let object: THREE.Object3D;
+
+    if (extension === "stl") {
+      object = new THREE.Mesh(new STLLoader().parse(buffer));
+    } else if (extension === "3mf") {
+      object = new ThreeMFLoader().parse(buffer);
+    } else {
+      throw new Error("Choose an STL or 3MF file to convert.");
+    }
+
+    this.validateModel(object, file.name);
+    object.updateMatrixWorld(true);
+    if (output === "3mf") return this.objectTo3mfBlob(object);
+
+    const result = new STLExporter().parse(object, { binary: true });
+    const outputBuffer = typeof result === "string" ? new TextEncoder().encode(result).buffer : result;
+    return new Blob([outputBuffer], { type: "model/stl" });
+  }
+
+  private objectTo3mfBlob(object: THREE.Object3D): Blob {
+    const vertices: string[] = [];
+    const triangles: string[] = [];
+    const vertex = new THREE.Vector3();
+    let vertexOffset = 0;
+
+    object.updateMatrixWorld(true);
+    object.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const geometry = mesh.geometry;
+      const positions = geometry.getAttribute("position");
+      if (!positions) return;
+
+      for (let index = 0; index < positions.count; index += 1) {
+        vertex.fromBufferAttribute(positions, index).applyMatrix4(mesh.matrixWorld);
+        vertices.push(`<vertex x="${format3mfNumber(vertex.x)}" y="${format3mfNumber(vertex.y)}" z="${format3mfNumber(vertex.z)}"/>`);
+      }
+
+      if (geometry.index) {
+        for (let index = 0; index < geometry.index.count; index += 3) {
+          triangles.push(`<triangle v1="${vertexOffset + geometry.index.getX(index)}" v2="${vertexOffset + geometry.index.getX(index + 1)}" v3="${vertexOffset + geometry.index.getX(index + 2)}"/>`);
+        }
+      } else {
+        for (let index = 0; index + 2 < positions.count; index += 3) {
+          triangles.push(`<triangle v1="${vertexOffset + index}" v2="${vertexOffset + index + 1}" v3="${vertexOffset + index + 2}"/>`);
+        }
+      }
+      vertexOffset += positions.count;
+    });
+
+    if (triangles.length === 0) throw new Error("The model has no printable triangles to export.");
+    const modelXml = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model"><mesh><vertices>${vertices.join("")}</vertices><triangles>${triangles.join("")}</triangles></mesh></object></resources><build><item objectid="1"/></build></model>`;
+    const contentTypes = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`;
+    const relationships = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`;
+    const archive = zipSync({
+      "[Content_Types].xml": strToU8(contentTypes),
+      "_rels/.rels": strToU8(relationships),
+      "3D/3dmodel.model": strToU8(modelXml),
+    }, { level: 6 });
+    return new Blob([Uint8Array.from(archive).buffer], { type: "model/3mf" });
   }
 
   private setupScene(): void {

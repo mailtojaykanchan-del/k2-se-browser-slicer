@@ -395,6 +395,56 @@ h1 {
   color: #1c2a35;
 }
 
+.cadConverter {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.converterGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.converterGrid button {
+  min-width: 0;
+  min-height: 35px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.converterGrid button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  background: #fff7f1;
+}
+
+.converterGrid button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.converterGrid strong {
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.conversionNotice {
+  margin: 0;
+  color: #406052;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .panelSection:first-child {
   border-top: 0;
   padding-top: 0;

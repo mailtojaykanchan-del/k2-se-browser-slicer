@@ -62,6 +62,7 @@ The `dist` directory includes the slicing engine under `kiri/` and its WebAssemb
 
 - CAD mode with editable boxes, cylinders, spheres, cones, and tubes
 - CAD STL export plus isometric, top, front, and right camera views
+- Local CAD-to-STL, CAD-to-3MF, STL-to-3MF, and 3MF-to-STL conversion
 - STL upload and browser preview
 - 3MF upload and preview when its geometry can be parsed
 - Orbit, pan, and zoom

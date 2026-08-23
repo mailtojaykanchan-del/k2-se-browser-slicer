@@ -28,6 +28,7 @@ import { formatDuration, formatGrams, formatMetersFromMm, formatMm } from "./lib
 import {
   type CadDefinition,
   type CameraView,
+  type ModelFileFormat,
   type ModelSnapshot,
   type TransformMode,
   SlicerScene,
@@ -82,6 +83,8 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<SlicerScene | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const converterInputRef = useRef<HTMLInputElement | null>(null);
+  const conversionRef = useRef<{ source: "stl" | "3mf"; output: ModelFileFormat } | null>(null);
   const [models, setModels] = useState<ModelSnapshot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("prepare");
@@ -94,6 +97,7 @@ function App() {
   const [sliceElapsed, setSliceElapsed] = useState(0);
   const [sliceResult, setSliceResult] = useState<SliceResult | null>(null);
   const [sliceError, setSliceError] = useState<string | null>(null);
+  const [conversionNotice, setConversionNotice] = useState<string | null>(null);
   const [activeLayer, setActiveLayer] = useState(0);
   const downloadUrlRef = useRef<string | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -251,14 +255,69 @@ function App() {
   function downloadSelectedStl() {
     const blob = sceneRef.current?.exportSelectedAsStlBlob();
     if (!blob || !selectedModel) return;
+    downloadBlob(blob, selectedModel.name, "stl");
+  }
+
+  function downloadBlob(blob: Blob, sourceName: string, extension: ModelFileFormat) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${selectedModel.name.replace(/\.(stl|3mf)$/i, "").replace(/[^a-z0-9_-]+/gi, "-")}.stl`;
+    const baseName = sourceName.replace(/\.(stl|3mf)$/i, "").replace(/[^a-z0-9_-]+/gi, "-") || "converted-model";
+    anchor.download = `${baseName}.${extension}`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
+
+  function startConversion(source: "cad" | "stl" | "3mf", output: ModelFileFormat) {
+    setSliceError(null);
+    setConversionNotice(null);
+    if (source === "cad") {
+      try {
+        const blob = output === "stl"
+          ? sceneRef.current?.exportSelectedAsStlBlob()
+          : sceneRef.current?.exportSelectedAs3mfBlob();
+        if (!blob || !selectedModel?.cad) {
+          setConversionNotice("Select a CAD part before converting it.");
+          return;
+        }
+        downloadBlob(blob, selectedModel.name, output);
+        setConversionNotice(`CAD converted to ${output.toUpperCase()}.`);
+      } catch (error) {
+        setConversionNotice(error instanceof Error ? error.message : "Could not convert this CAD part.");
+      }
+      return;
+    }
+
+    conversionRef.current = { source, output };
+    if (converterInputRef.current) {
+      converterInputRef.current.accept = `.${source}`;
+      converterInputRef.current.click();
+    }
+  }
+
+  async function handleConversionFile(file: File | undefined) {
+    const conversion = conversionRef.current;
+    conversionRef.current = null;
+    if (!file || !conversion || !sceneRef.current) return;
+    const extension = file.name.toLowerCase().split(".").pop();
+    if (extension !== conversion.source) {
+      setConversionNotice(`Choose a ${conversion.source.toUpperCase()} file.`);
+      return;
+    }
+
+    try {
+      setBusyMessage(`Converting ${file.name}`);
+      setConversionNotice(null);
+      const blob = await sceneRef.current.convertFile(file, conversion.output);
+      downloadBlob(blob, file.name, conversion.output);
+      setConversionNotice(`${file.name} converted to ${conversion.output.toUpperCase()}.`);
+    } catch (error) {
+      setConversionNotice(error instanceof Error ? error.message : "Could not convert this file.");
+    } finally {
+      setBusyMessage(null);
+    }
   }
 
   function setCameraView(view: CameraView) {
@@ -377,6 +436,15 @@ function App() {
             multiple
             onChange={(event) => void handleFiles(event.target.files)}
           />
+          <input
+            ref={converterInputRef}
+            className="hiddenInput"
+            type="file"
+            onChange={(event) => {
+              void handleConversionFile(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
         </div>
       </header>
 
@@ -392,6 +460,9 @@ function App() {
               onApply={applyCadPart}
               onDownload={downloadSelectedStl}
               onView={setCameraView}
+              onConvert={startConversion}
+              converting={busyMessage?.startsWith("Converting ") ?? false}
+              conversionNotice={conversionNotice}
             />
           ) : (
             <DropZone onFiles={handleFiles} busy={busyMessage?.startsWith("Loading model:") ? busyMessage : null} />
