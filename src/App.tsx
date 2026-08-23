@@ -3,6 +3,7 @@ import {
   Boxes,
   CheckCircle2,
   CircleHelp,
+  Combine,
   Copy,
   Crosshair,
   Download,
@@ -74,7 +75,7 @@ type WorkspaceMode = "prepare" | "cad";
 function plateSignature(models: ModelSnapshot[]): string {
   return JSON.stringify(
     models
-      .map(({ id, dimensions, position, rotation, scale, cad }) => ({ id, dimensions, position, rotation, scale, cad }))
+      .map(({ id, dimensions, position, rotation, scale, cad, connected }) => ({ id, dimensions, position, rotation, scale, cad, connected }))
       .sort((a, b) => a.id.localeCompare(b.id)),
   );
 }
@@ -278,7 +279,7 @@ function App() {
         const blob = output === "stl"
           ? sceneRef.current?.exportSelectedAsStlBlob()
           : sceneRef.current?.exportSelectedAs3mfBlob();
-        if (!blob || !selectedModel?.cad) {
+        if (!blob || (!selectedModel?.cad && !selectedModel?.connected)) {
           setConversionNotice("Select a CAD part before converting it.");
           return;
         }
@@ -453,7 +454,8 @@ function App() {
           {workspaceMode === "cad" ? (
             <CadPanel
               definition={cadDraft}
-              selectedIsCad={Boolean(selectedModel?.cad)}
+              selectedIsCad={Boolean(selectedModel?.cad || selectedModel?.connected)}
+              selectedCanResize={Boolean(selectedModel?.cad)}
               error={cadError}
               onChange={setCadDraft}
               onAdd={addCadPart}
@@ -493,7 +495,7 @@ function App() {
                       <small>
                         {formatMm(model.dimensions.x)} x {formatMm(model.dimensions.y)} x {formatMm(model.dimensions.z)}
                       </small>
-                      <small>{model.cad ? `CAD ${model.cad.kind} | ` : ""}{numberFormatter.format(model.triangleCount)} triangles</small>
+                      <small>{model.cad ? `CAD ${model.cad.kind} | ` : model.connected ? "Connected CAD | " : ""}{numberFormatter.format(model.triangleCount)} triangles</small>
                     </span>
                   </button>
                 ))
@@ -554,6 +556,13 @@ function App() {
             </IconButton>
             <IconButton label="Duplicate" disabled={!selectedModel} onClick={() => sceneRef.current?.duplicateSelected()}>
               <Copy size={18} />
+            </IconButton>
+            <IconButton
+              label="Connect touching objects"
+              disabled={!selectedModel || models.length < 2}
+              onClick={() => sceneRef.current?.connectTouchingModels()}
+            >
+              <Combine size={18} />
             </IconButton>
             <IconButton label="Delete" disabled={!selectedModel} onClick={() => sceneRef.current?.deleteSelected()}>
               <Trash2 size={18} />

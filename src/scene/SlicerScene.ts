@@ -35,6 +35,7 @@ export interface ModelSnapshot {
   selected: boolean;
   triangleCount: number;
   cad: CadDefinition | null;
+  connected: boolean;
   dimensions: Vec3Snapshot;
   position: Vec3Snapshot;
   rotation: Vec3Snapshot;
@@ -49,6 +50,7 @@ interface ModelEntry {
   object: THREE.Object3D;
   color: THREE.Color;
   cad?: CadDefinition;
+  connected?: boolean;
 }
 
 const PLATE = K2_SE_PROFILE.buildVolume;
@@ -386,10 +388,88 @@ export class SlicerScene {
       object,
       color,
       cad: entry.cad ? { ...entry.cad } : undefined,
+      connected: entry.connected,
     });
     this.scene.add(object);
     this.selectModel(id);
     this.sync();
+  }
+
+  connectTouchingModels(): number {
+    const selected = this.selectedEntry();
+    if (!selected || this.models.size < 2) {
+      this.onError("Select one of at least two overlapping objects to connect.");
+      return 0;
+    }
+
+    const connected = new Set<ModelEntry>([selected]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const candidate of this.models.values()) {
+        if (connected.has(candidate)) continue;
+        if ([...connected].some((entry) => this.objectsTouch(entry.object, candidate.object))) {
+          connected.add(candidate);
+          changed = true;
+        }
+      }
+    }
+
+    if (connected.size < 2) {
+      this.onError("No touching object found. Move the parts so they overlap slightly, then connect them.");
+      return 0;
+    }
+
+    this.transform.detach();
+    const id = crypto.randomUUID();
+    const object = new THREE.Group();
+    const color = selected.color.clone();
+
+    for (const entry of connected) {
+      entry.object.updateMatrixWorld(true);
+      entry.object.traverse((child) => {
+        const sourceMesh = child as THREE.Mesh;
+        if (!sourceMesh.isMesh) return;
+        const geometry = sourceMesh.geometry.clone();
+        geometry.applyMatrix4(sourceMesh.matrixWorld);
+        const mesh = new THREE.Mesh(geometry, this.createMaterial(this.models.size));
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.userData.modelId = id;
+        object.add(mesh);
+      });
+    }
+
+    const worldBox = new THREE.Box3().setFromObject(object);
+    const origin = worldBox.getCenter(new THREE.Vector3());
+    origin.z = worldBox.min.z;
+    for (const child of object.children) {
+      const mesh = child as THREE.Mesh;
+      mesh.geometry.translate(-origin.x, -origin.y, -origin.z);
+    }
+    object.position.copy(origin);
+    object.userData.modelId = id;
+
+    for (const entry of connected) {
+      this.scene.remove(entry.object);
+      this.disposeObject(entry.object);
+      this.models.delete(entry.id);
+    }
+
+    const connectedCount = [...this.models.values()].filter((entry) => entry.connected).length + 1;
+    this.models.set(id, {
+      id,
+      name: `Connected Part ${connectedCount}`,
+      object,
+      color,
+      connected: true,
+    });
+    this.scene.add(object);
+    this.selectedId = id;
+    this.transform.attach(object);
+    this.onError(null);
+    this.sync();
+    return connected.size;
   }
 
   deleteSelected(): void {
@@ -944,6 +1024,7 @@ export class SlicerScene {
       selected,
       triangleCount,
       cad: entry.cad ? { ...entry.cad } : null,
+      connected: Boolean(entry.connected),
       dimensions: {
         x: Number(size.x.toFixed(2)),
         y: Number(size.y.toFixed(2)),
@@ -984,6 +1065,17 @@ export class SlicerScene {
         }
       }
     });
+  }
+
+  private objectsTouch(a: THREE.Object3D, b: THREE.Object3D): boolean {
+    const first = this.boxOf(a);
+    const second = this.boxOf(b);
+    const tolerance = 0.05;
+    return (
+      Math.min(first.max.x, second.max.x) - Math.max(first.min.x, second.min.x) >= -tolerance &&
+      Math.min(first.max.y, second.max.y) - Math.max(first.min.y, second.min.y) >= -tolerance &&
+      Math.min(first.max.z, second.max.z) - Math.max(first.min.z, second.min.z) >= -tolerance
+    );
   }
 
   private sync(): void {

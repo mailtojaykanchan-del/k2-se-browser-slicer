@@ -42,6 +42,7 @@ export function defaultCadDefinition(kind: CadPrimitiveKind): CadDefinition {
 interface CadPanelProps {
   definition: CadDefinition;
   selectedIsCad: boolean;
+  selectedCanResize: boolean;
   error: string | null;
   onChange: (definition: CadDefinition) => void;
   onAdd: () => void;
@@ -56,6 +57,7 @@ interface CadPanelProps {
 export function CadPanel({
   definition,
   selectedIsCad,
+  selectedCanResize,
   error,
   onChange,
   onAdd,
@@ -120,7 +122,7 @@ export function CadPanel({
           <Plus size={17} />
           Add part
         </button>
-        <button type="button" disabled={!selectedIsCad || Boolean(error)} onClick={onApply}>
+        <button type="button" disabled={!selectedCanResize || Boolean(error)} onClick={onApply}>
           <RefreshCw size={17} />
           Apply size
         </button>
