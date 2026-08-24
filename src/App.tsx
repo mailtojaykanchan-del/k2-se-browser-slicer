@@ -7,6 +7,7 @@ import {
   Copy,
   Crosshair,
   Download,
+  ExternalLink,
   ArrowRightLeft,
   FileUp,
   Grid3X3,
@@ -106,6 +107,7 @@ function App() {
   const [sliceResult, setSliceResult] = useState<SliceResult | null>(null);
   const [sliceError, setSliceError] = useState<string | null>(null);
   const [conversionNotice, setConversionNotice] = useState<string | null>(null);
+  const [crealityNotice, setCrealityNotice] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiStatus, setAiStatus] = useState("Cloud AI with automatic retry; no developer API key");
   const [aiStatusKind, setAiStatusKind] = useState<"ready" | "working" | "success" | "error">("ready");
@@ -238,7 +240,31 @@ function App() {
       downloadUrlRef.current = null;
     }
     setSliceResult(null);
+    setCrealityNotice(null);
     setActiveLayer(0);
+  }
+
+  async function openGcodeWithCrealityPrint() {
+    if (!sliceResult) return;
+    try {
+      const blob = await fetch(sliceResult.downloadUrl).then((response) => response.blob());
+      const file = new File([blob], sliceResult.filename, { type: "text/x-gcode" });
+      const shareData = { files: [file], title: sliceResult.filename };
+      if (navigator.share && navigator.canShare?.(shareData)) {
+        await navigator.share(shareData);
+        setCrealityNotice("Choose Creality Print in the system app menu. If it is not listed, use Download G-code and open the downloaded file from Creality Print.");
+        return;
+      }
+
+      const link = document.createElement("a");
+      link.href = sliceResult.downloadUrl;
+      link.download = sliceResult.filename;
+      link.click();
+      setCrealityNotice("Your G-code was downloaded. Open the downloaded file with Creality Print. This browser cannot launch desktop apps directly.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setCrealityNotice("Could not open the system app menu. Download the G-code, then open it from Creality Print.");
+    }
   }
 
   function updateMode(nextMode: TransformMode) {
@@ -859,11 +885,18 @@ function App() {
                     <CheckCircle2 size={20} />
                     <strong>G-code ready</strong>
                   </span>
-                  <a className="downloadButton" href={sliceResult.downloadUrl} download={sliceResult.filename}>
-                    <Download size={16} />
-                    Download G-code
-                  </a>
+                  <div className="resultActions">
+                    <button className="downloadButton secondary" type="button" onClick={() => void openGcodeWithCrealityPrint()}>
+                      <ExternalLink size={16} />
+                      Open with Creality Print
+                    </button>
+                    <a className="downloadButton" href={sliceResult.downloadUrl} download={sliceResult.filename}>
+                      <Download size={16} />
+                      Download G-code
+                    </a>
+                  </div>
                 </div>
+                {crealityNotice && <p className="inlineNotice" role="status">{crealityNotice}</p>}
                 <div className="estimateGrid">
                   <Metric label="Layers" value={numberFormatter.format(sliceResult.summary.layerCount)} />
                   <Metric label="Filament" value={formatMetersFromMm(sliceResult.summary.filamentMm)} />

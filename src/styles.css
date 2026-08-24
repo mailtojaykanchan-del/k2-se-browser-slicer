@@ -185,6 +185,23 @@ h1 {
   text-align: center;
 }
 
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.downloadButton.secondary {
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: #25364a;
+}
+
+.downloadButton.secondary:hover {
+  background: #f3f6f9;
+}
+
 .primaryButton:hover,
 .sliceButton:hover,
 .downloadButton:hover {
