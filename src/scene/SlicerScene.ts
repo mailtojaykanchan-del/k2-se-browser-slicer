@@ -4,6 +4,7 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import { FontLoader, type FontData } from "three/examples/jsm/loaders/FontLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -203,6 +204,31 @@ export class SlicerScene {
     this.selectModel(id);
     this.focusObject(object);
     this.sync();
+  }
+
+  async loadGeneratedGlb(buffer: ArrayBuffer, name: string): Promise<string> {
+    const gltf = await new GLTFLoader().parseAsync(buffer, "");
+    const object = gltf.scene;
+    this.validateModel(object, name);
+    this.prepareMaterials(object, this.models.size);
+    object.updateMatrixWorld(true);
+    const initialSize = new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
+    const largest = Math.max(initialSize.x, initialSize.y, initialSize.z);
+    if (!Number.isFinite(largest) || largest <= 0) throw new Error("The generated mesh has invalid dimensions.");
+    object.scale.multiplyScalar(90 / largest);
+    this.normalizeObject(object);
+
+    const id = crypto.randomUUID();
+    const color = new THREE.Color(COLORS[this.models.size % COLORS.length]);
+    object.userData.modelId = id;
+    object.traverse(child => { child.userData.modelId = id; });
+    this.models.set(id, { id, name, object, color });
+    this.scene.add(object);
+    this.centerObject(object);
+    this.selectModel(id);
+    this.focusObject(object);
+    this.sync();
+    return id;
   }
 
   createCadPrimitive(definition: CadDefinition): string {

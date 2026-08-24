@@ -41,6 +41,7 @@ import { sliceInBrowser, type BrowserSliceProgress } from "./slicing/kiriEngine"
 import { K2_SE_PROFILE } from "../shared/profile";
 import { parseGcode } from "../shared/gcodeParser";
 import { generateCadPlan } from "./ai/gemmaCad";
+import { generateTextMesh, needsTextToMesh } from "./ai/textToMesh";
 import {
   DEFAULT_PRINT_SETTINGS,
   type AdhesionMode,
@@ -253,6 +254,16 @@ function App() {
     setAiBusy(true);
     setSliceError(null);
     try {
+      if (needsTextToMesh(prompt)) {
+        const generated = await generateTextMesh(prompt, setAiStatus);
+        const previousIds = quickCadIdsRef.current;
+        const id = await sceneRef.current.loadGeneratedGlb(generated.buffer, `AI ${prompt.slice(0, 36)}.glb`);
+        sceneRef.current.deleteModels(previousIds);
+        quickCadIdsRef.current = [id];
+        setAiStatus("Real text-to-3D mesh created");
+        invalidateSliceResult();
+        return;
+      }
       const plan = await generateCadPlan(prompt, setAiStatus);
       invalidateSliceResult();
       const previousIds = quickCadIdsRef.current;

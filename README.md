@@ -82,6 +82,7 @@ The original PrusaSlicer/SuperSlicer wrapper remains available for development o
 Kiri:Moto is an open-source Grid.Space project distributed under the MIT license. The bundled license is in `public/kiri/LICENSE.md`. See the [Kiri:Moto documentation](https://docs.grid.space/kiri-moto/) and [GridSpace/grid-apps repository](https://github.com/GridSpace/grid-apps).
 
 AI CAD uses Puter.js cloud AI without a developer API key. It validates the returned primitive assembly and retries up to three times before using the built-in Quick CAD interpreter as an offline fallback. Puter's user-pays service may request user sign-in, and AI prompts are sent to Puter.
+Detailed organic prompts use the anonymous three.ws text-to-3D REST service through Puter's network proxy and import the resulting GLB mesh. Generated GLBs are stored at public CDN URLs, and both services process request data. Puter may request sign-in. The free generation service is externally operated, rate-limited, and may be unavailable.
 Multi-part AI plans must fit the K2 SE volume and form one touching assembly; accepted parts are automatically connected into one model.
 Plans without explicit dimensions are automatically centered, grounded, and limited to a 100 mm maximum span before preview.
 

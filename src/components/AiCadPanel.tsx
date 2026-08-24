@@ -52,7 +52,7 @@ export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
         <span>Airless ball</span>
         <span>Nameplate</span>
       </div>
-      <small className="aiCloudNotice">Cloud AI may request Puter sign-in. Prompts are sent to Puter; no developer API key is required.</small>
+      <small className="aiCloudNotice">Detailed objects use three.ws text-to-3D through Puter and may take several minutes. Generated GLB files are public, and both services process request data. Puter may request sign-in; no developer API key is required.</small>
     </section>
   );
 }
