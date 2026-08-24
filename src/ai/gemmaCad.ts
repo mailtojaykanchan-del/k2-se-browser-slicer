@@ -22,11 +22,6 @@ export async function generateCadPlan(
   prompt: string,
   progress?: (message: string) => void,
 ): Promise<{ parts: AiCadPart[]; engine: "cloud" | "parser" }> {
-  const nameplate = parseNameplate(prompt);
-  if (nameplate) {
-    progress?.("Creating fitted nameplate and raised text");
-    return { parts: nameplate, engine: "parser" };
-  }
   if (window.puter?.ai) {
     let lastError: unknown;
     let feedback = "";
@@ -47,7 +42,7 @@ export async function generateCadPlan(
 
     try {
       progress?.("Cloud AI failed; trying the built-in designer");
-      return { parts: parsePromptLocally(prompt), engine: "parser" };
+      return { parts: parseNameplate(prompt) ?? parsePromptLocally(prompt), engine: "parser" };
     } catch {
       const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
       throw new Error(`AI could not produce valid printable CAD after 3 attempts: ${detail}`);
@@ -55,14 +50,14 @@ export async function generateCadPlan(
   }
 
   progress?.("Cloud AI unavailable; using the built-in designer");
-  return { parts: parsePromptLocally(prompt), engine: "parser" };
+  return { parts: parseNameplate(prompt) ?? parsePromptLocally(prompt), engine: "parser" };
 }
 
 function buildCadPrompt(request: string, attempt: number, feedback: string): string {
   return `You are a CAD planner. Convert the request into a simple printable assembly made only from these primitives: box, cylinder, sphere, cone, tube, basketball, airlessBall, text.
 Return JSON only, with no markdown, using exactly this schema:
 {"parts":[{"kind":"box","width":30,"depth":30,"height":20,"diameter":30,"topDiameter":0,"innerDiameter":18,"text":"HELLO","fontSize":12,"x":0,"y":0,"z":0}]}
-Coordinates x and y are the center of each part. Coordinate z is the bottom of each part, not its center. Use millimeters and 1 to 12 parts. Make an ordinary unspecified object about 60 to 90 mm across, never larger than 100 mm unless the user gives dimensions. Keep every primitive dimension between 0.8 and 100. For tubes, innerDiameter must be smaller than diameter. Every part in a multi-part design MUST touch or overlap another part, and all parts together MUST form one connected assembly. Center the assembly near x=0 and y=0, place its lowest point at z=0, and keep it upright. Approximate complex objects with recognizable proportions and connected primitive assemblies. This is validation attempt ${attempt}.${feedback ? ` The previous attempt failed validation: ${feedback}. Correct that problem.` : ""} Return valid JSON only. User request: ${request}`;
+Coordinates x and y are the center of each part. Coordinate z is the bottom of each part, not its center. Use millimeters and 1 to 12 parts. For any requested lettering, use a text primitive with the exact requested characters; never approximate letters with boxes. A raised-text nameplate should use one thin box base and one overlapping text part above it. Make an ordinary unspecified object about 60 to 90 mm across, never larger than 100 mm unless the user gives dimensions. Keep every primitive dimension between 0.8 and 100. For tubes, innerDiameter must be smaller than diameter. Every part in a multi-part design MUST touch or overlap another part, and all parts together MUST form one connected assembly. Center the assembly near x=0 and y=0, place its lowest point at z=0, and keep it upright. Approximate complex objects with recognizable proportions and connected primitive assemblies. This is validation attempt ${attempt}.${feedback ? ` The previous attempt failed validation: ${feedback}. Correct that problem.` : ""} Return valid JSON only. User request: ${request}`;
 }
 
 function extractJson(text: string): unknown {
