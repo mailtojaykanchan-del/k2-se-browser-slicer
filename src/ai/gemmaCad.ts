@@ -199,7 +199,7 @@ function parseNameplate(prompt: string): AiCadPart[] | null {
   const lower = prompt.toLowerCase();
   if (!lower.includes("nameplate") && !lower.includes("name plate")) return null;
   const quoted = prompt.match(/["“]([^"”]{1,24})["”]/)?.[1];
-  const afterSays = prompt.match(/\b(?:says?|reading|with(?: the)? text)\s+(.{1,24})$/i)?.[1];
+  const afterSays = prompt.match(/\b(?:say|says|sais|reading|with(?: the)? text)\s+(.{1,24})$/i)?.[1];
   const label = (quoted ?? afterSays ?? "HELLO").replace(/[.!?]+$/, "").trim().toUpperCase().slice(0, 24) || "HELLO";
   const fontSize = 12;
   const plateWidth = Math.min(100, Math.max(48, label.length * fontSize * 0.72 + 14));
