@@ -107,6 +107,7 @@ function App() {
   const [conversionNotice, setConversionNotice] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiStatus, setAiStatus] = useState("Cloud AI with automatic retry; no developer API key");
+  const [aiStatusKind, setAiStatusKind] = useState<"ready" | "working" | "success" | "error">("ready");
   const [activeLayer, setActiveLayer] = useState(0);
   const downloadUrlRef = useRef<string | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -252,6 +253,7 @@ function App() {
   async function generateAiCad(prompt: string) {
     if (!sceneRef.current || aiBusy) return;
     setAiBusy(true);
+    setAiStatusKind("working");
     setSliceError(null);
     try {
       if (needsTextToMesh(prompt)) {
@@ -261,6 +263,7 @@ function App() {
         sceneRef.current.deleteModels(previousIds);
         quickCadIdsRef.current = [id];
         setAiStatus("Real text-to-3D mesh created");
+        setAiStatusKind("success");
         invalidateSliceResult();
         return;
       }
@@ -286,8 +289,11 @@ function App() {
       sceneRef.current.setCameraView("iso");
       sceneRef.current.focusSelected();
       setAiStatus(`${plan.engine === "cloud" ? "AI" : "Quick CAD"} created ${plan.parts.length} part${plan.parts.length === 1 ? "" : "s"}`);
+      setAiStatusKind("success");
     } catch (error) {
-      setAiStatus(error instanceof Error ? error.message : "Could not generate this CAD model");
+      const detail = error instanceof Error ? error.message : "Could not generate this CAD model";
+      setAiStatus(`${detail} The visible model was not changed.`);
+      setAiStatusKind("error");
     } finally {
       setAiBusy(false);
     }
@@ -536,6 +542,7 @@ function App() {
             <AiCadPanel
               busy={aiBusy}
               status={aiStatus}
+              statusKind={aiStatusKind}
               onGenerate={(prompt) => void generateAiCad(prompt)}
             />
           ) : (

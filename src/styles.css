@@ -515,6 +515,24 @@ h1 {
   color: #176757;
 }
 
+.aiModelStatus.working {
+  border-color: #e8b15b;
+  background: #fff8e8;
+  color: #8a5000;
+}
+
+.aiModelStatus.success {
+  border-color: #78b9a7;
+  background: #eefaf7;
+  color: #176757;
+}
+
+.aiModelStatus.error {
+  border-color: #ef9a9a;
+  background: #fff1f1;
+  color: #a32020;
+}
+
 .aiModelStatus span {
   min-width: 0;
   display: grid;

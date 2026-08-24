@@ -4,10 +4,11 @@ import { useState } from "react";
 interface AiCadPanelProps {
   busy: boolean;
   status: string;
+  statusKind: "ready" | "working" | "success" | "error";
   onGenerate: (prompt: string) => void;
 }
 
-export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
+export function AiCadPanel({ busy, status, statusKind, onGenerate }: AiCadPanelProps) {
   const [prompt, setPrompt] = useState("");
 
   return (
@@ -18,10 +19,10 @@ export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
         <span>local</span>
       </div>
 
-      <div className="aiModelStatus ready">
-        <Bot size={18} />
+      <div className={`aiModelStatus ${statusKind}`} role={statusKind === "error" ? "alert" : "status"}>
+        {busy ? <LoaderCircle size={18} className="spinIcon" /> : <Bot size={18} />}
         <span>
-          <strong>AI CAD ready</strong>
+          <strong>{statusKind === "working" ? "Generating real 3D model" : statusKind === "success" ? "New AI model ready" : statusKind === "error" ? "Generation failed" : "AI CAD ready"}</strong>
           <small>{status}</small>
         </span>
       </div>
@@ -37,8 +38,8 @@ export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
       </label>
 
       <button className="aiGenerateButton" type="button" disabled={busy || prompt.trim().length < 3} onClick={() => onGenerate(prompt.trim())}>
-        {busy ? <LoaderCircle size={18} className="spin" /> : <Sparkles size={18} />}
-        Generate CAD
+        {busy ? <LoaderCircle size={18} className="spinIcon" /> : <Sparkles size={18} />}
+        {busy ? "Generating..." : "Generate CAD"}
       </button>
 
       <div className="aiCapabilityRow">
