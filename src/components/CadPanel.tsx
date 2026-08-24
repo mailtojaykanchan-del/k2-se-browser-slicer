@@ -29,6 +29,8 @@ export function defaultCadDefinition(kind: CadPrimitiveKind): CadDefinition {
     diameter: 30,
     topDiameter: 0,
     innerDiameter: 18,
+    text: kind === "text" ? "TEXT" : undefined,
+    fontSize: kind === "text" ? 12 : undefined,
   };
 
   if (kind === "cylinder") return { ...common, height: 25 };

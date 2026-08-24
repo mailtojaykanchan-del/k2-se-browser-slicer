@@ -86,4 +86,5 @@ Multi-part AI plans must fit the K2 SE volume and form one touching assembly; ac
 Plans without explicit dimensions are automatically centered, grounded, and limited to a 100 mm maximum span before preview.
 
 Quick CAD interprets common shape names and dimensions entirely in the page. It supports boxes, cylinders, spheres, cones, tubes, a printable basketball with raised seams, and an open strut-lattice airless ball. Cloud AI can approximate more requests with multi-part assemblies, but neither mode can guarantee arbitrary freeform meshes or accurate likenesses.
+Nameplate prompts use deterministic bold extruded text rather than AI-generated block approximations. For example, `nameplate that says hello` creates a fitted base with raised `HELLO` lettering.
 Generating again automatically replaces the previous Quick CAD result without deleting uploaded models or manually created CAD parts.

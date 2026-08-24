@@ -22,6 +22,11 @@ export async function generateCadPlan(
   prompt: string,
   progress?: (message: string) => void,
 ): Promise<{ parts: AiCadPart[]; engine: "cloud" | "parser" }> {
+  const nameplate = parseNameplate(prompt);
+  if (nameplate) {
+    progress?.("Creating fitted nameplate and raised text");
+    return { parts: nameplate, engine: "parser" };
+  }
   if (window.puter?.ai) {
     let lastError: unknown;
     let feedback = "";
@@ -54,9 +59,9 @@ export async function generateCadPlan(
 }
 
 function buildCadPrompt(request: string, attempt: number, feedback: string): string {
-  return `You are a CAD planner. Convert the request into a simple printable assembly made only from these primitives: box, cylinder, sphere, cone, tube, basketball, airlessBall.
+  return `You are a CAD planner. Convert the request into a simple printable assembly made only from these primitives: box, cylinder, sphere, cone, tube, basketball, airlessBall, text.
 Return JSON only, with no markdown, using exactly this schema:
-{"parts":[{"kind":"box","width":30,"depth":30,"height":20,"diameter":30,"topDiameter":0,"innerDiameter":18,"x":0,"y":0,"z":0}]}
+{"parts":[{"kind":"box","width":30,"depth":30,"height":20,"diameter":30,"topDiameter":0,"innerDiameter":18,"text":"HELLO","fontSize":12,"x":0,"y":0,"z":0}]}
 Coordinates x and y are the center of each part. Coordinate z is the bottom of each part, not its center. Use millimeters and 1 to 12 parts. Make an ordinary unspecified object about 60 to 90 mm across, never larger than 100 mm unless the user gives dimensions. Keep every primitive dimension between 0.8 and 100. For tubes, innerDiameter must be smaller than diameter. Every part in a multi-part design MUST touch or overlap another part, and all parts together MUST form one connected assembly. Center the assembly near x=0 and y=0, place its lowest point at z=0, and keep it upright. Approximate complex objects with recognizable proportions and connected primitive assemblies. This is validation attempt ${attempt}.${feedback ? ` The previous attempt failed validation: ${feedback}. Correct that problem.` : ""} Return valid JSON only. User request: ${request}`;
 }
 
@@ -96,6 +101,7 @@ function normalizeAssembly(parts: AiCadPart[]): AiCadPart[] {
       diameter: part.definition.diameter * scale,
       topDiameter: part.definition.topDiameter * scale,
       innerDiameter: part.definition.innerDiameter * scale,
+      fontSize: part.definition.fontSize ? part.definition.fontSize * scale : undefined,
     },
     position: {
       x: (part.position.x - centerX) * scale,
@@ -133,8 +139,9 @@ interface PartBounds { minX: number; maxX: number; minY: number; maxY: number; m
 function partBounds(part: AiCadPart): PartBounds {
   const { definition, position } = part;
   const round = ["cylinder", "sphere", "cone", "tube", "basketball", "airlessBall"].includes(definition.kind);
-  const width = round ? definition.diameter : definition.width;
-  const depth = round ? definition.diameter : definition.depth;
+  const textWidth = (definition.text?.length ?? 4) * (definition.fontSize ?? 12) * 0.72;
+  const width = definition.kind === "text" ? textWidth : round ? definition.diameter : definition.width;
+  const depth = definition.kind === "text" ? definition.fontSize ?? 12 : round ? definition.diameter : definition.depth;
   const height = ["sphere", "basketball", "airlessBall"].includes(definition.kind) ? definition.diameter : definition.height;
   return {
     minX: position.x - width / 2,
@@ -154,7 +161,7 @@ function boxesTouch(a: PartBounds, b: PartBounds, tolerance: number): boolean {
 
 function normalizePart(raw: unknown): AiCadPart {
   const value = raw as Record<string, unknown>;
-  const allowed: CadPrimitiveKind[] = ["box", "cylinder", "sphere", "cone", "tube", "basketball", "airlessBall"];
+  const allowed: CadPrimitiveKind[] = ["box", "cylinder", "sphere", "cone", "tube", "basketball", "airlessBall", "text"];
   const kind = allowed.includes(value.kind as CadPrimitiveKind) ? value.kind as CadPrimitiveKind : "box";
   const defaults = defaultCadDefinition(kind);
   const number = (key: string, fallback: number, min = 0.5) => {
@@ -172,6 +179,8 @@ function normalizePart(raw: unknown): AiCadPart {
       diameter,
       topDiameter: number("topDiameter", defaults.topDiameter, 0),
       innerDiameter,
+      text: typeof value.text === "string" ? value.text.slice(0, 24) : defaults.text,
+      fontSize: number("fontSize", defaults.fontSize ?? 12, 3),
     },
     position: {
       x: clampPosition(value.x, -100, 100),
@@ -184,6 +193,20 @@ function normalizePart(raw: unknown): AiCadPart {
 function clampPosition(value: unknown, min: number, max: number): number {
   const candidate = Number(value);
   return Number.isFinite(candidate) ? Math.max(min, Math.min(max, candidate)) : 0;
+}
+
+function parseNameplate(prompt: string): AiCadPart[] | null {
+  const lower = prompt.toLowerCase();
+  if (!lower.includes("nameplate") && !lower.includes("name plate")) return null;
+  const quoted = prompt.match(/["“]([^"”]{1,24})["”]/)?.[1];
+  const afterSays = prompt.match(/\b(?:says?|reading|with(?: the)? text)\s+(.{1,24})$/i)?.[1];
+  const label = (quoted ?? afterSays ?? "HELLO").replace(/[.!?]+$/, "").trim().toUpperCase().slice(0, 24) || "HELLO";
+  const fontSize = 12;
+  const plateWidth = Math.min(100, Math.max(48, label.length * fontSize * 0.72 + 14));
+  return [
+    normalizePart({ kind: "box", width: plateWidth, depth: 28, height: 3, x: 0, y: 0, z: 0 }),
+    normalizePart({ kind: "text", text: label, fontSize, height: 2.4, x: 0, y: 0, z: 2.6 }),
+  ];
 }
 
 function parsePromptLocally(prompt: string): AiCadPart[] {

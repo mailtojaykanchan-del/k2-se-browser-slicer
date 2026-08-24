@@ -4,12 +4,15 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
+import { FontLoader, type FontData } from "three/examples/jsm/loaders/FontLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import helvetikerBold from "three/examples/fonts/helvetiker_bold.typeface.json";
 import { strToU8, zipSync } from "fflate";
 import { K2_SE_PROFILE } from "../../shared/profile";
 
 export type TransformMode = "translate" | "rotate" | "scale";
-export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube" | "basketball" | "airlessBall";
+export type CadPrimitiveKind = "box" | "cylinder" | "sphere" | "cone" | "tube" | "basketball" | "airlessBall" | "text";
 export type CameraView = "iso" | "top" | "front" | "right";
 export type ModelFileFormat = "stl" | "3mf";
 
@@ -21,6 +24,8 @@ export interface CadDefinition {
   diameter: number;
   topDiameter: number;
   innerDiameter: number;
+  text?: string;
+  fontSize?: number;
 }
 
 export interface Vec3Snapshot {
@@ -60,6 +65,7 @@ const DEG = 180 / Math.PI;
 const RAD = Math.PI / 180;
 const MAX_MODEL_FILE_BYTES = 150 * 1024 * 1024;
 const MAX_PREVIEW_VERTICES = 4_000_000;
+const CAD_FONT = new FontLoader().parse(helvetikerBold as FontData);
 
 function format3mfNumber(value: number): string {
   const normalized = Math.abs(value) < 0.0000005 ? 0 : value;
@@ -822,6 +828,8 @@ export class SlicerScene {
       diameter,
       topDiameter: Math.max(0, finite(definition.topDiameter, 0)),
       innerDiameter: Math.max(0.25, Math.min(diameter - 0.25, finite(definition.innerDiameter, diameter / 2))),
+      text: definition.text?.replace(/[^\x20-\x7e]/g, "").slice(0, 24) || "TEXT",
+      fontSize: Math.max(3, Math.min(40, finite(definition.fontSize ?? 12, 12))),
     };
   }
 
@@ -876,6 +884,18 @@ export class SlicerScene {
         cage.dispose();
         break;
       }
+      case "text":
+        geometry = new TextGeometry(definition.text ?? "TEXT", {
+          font: CAD_FONT,
+          size: definition.fontSize ?? 12,
+          depth: definition.height,
+          curveSegments: 8,
+          bevelEnabled: true,
+          bevelThickness: 0.18,
+          bevelSize: 0.12,
+          bevelSegments: 2,
+        });
+        break;
       case "cone":
         geometry = new THREE.CylinderGeometry(definition.topDiameter / 2, radius, definition.height, 64);
         geometry.rotateX(Math.PI / 2);

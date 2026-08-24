@@ -50,6 +50,7 @@ export function AiCadPanel({ busy, status, onGenerate }: AiCadPanelProps) {
         <span>Tube</span>
         <span>Basketball</span>
         <span>Airless ball</span>
+        <span>Nameplate</span>
       </div>
       <small className="aiCloudNotice">Cloud AI may request Puter sign-in. Prompts are sent to Puter; no developer API key is required.</small>
     </section>
