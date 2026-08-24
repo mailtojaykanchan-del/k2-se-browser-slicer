@@ -21,6 +21,7 @@ import {
   Scissors,
   Sparkles,
   Trash2,
+  Unlink,
   Undo2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -311,6 +312,16 @@ function App() {
     sceneRef.current.updateSelectedCadPrimitive(cadDraft);
   }
 
+  function disassembleSelected() {
+    if (!sceneRef.current || !selectedId) return;
+    invalidateSliceResult();
+    const assemblyId = selectedId;
+    const restoredIds = sceneRef.current.disassembleSelected();
+    if (restoredIds.length > 0 && quickCadIdsRef.current.includes(assemblyId)) {
+      quickCadIdsRef.current = restoredIds;
+    }
+  }
+
   function downloadSelectedStl() {
     const blob = sceneRef.current?.exportSelectedAsStlBlob();
     if (!blob || !selectedModel) return;
@@ -523,12 +534,14 @@ function App() {
               selectedIsCad={Boolean(selectedModel?.cad || selectedModel?.connected)}
               selectedCanResize={Boolean(selectedModel?.cad)}
               canConnect={Boolean(selectedModel) && models.length > 1}
+              canDisassemble={Boolean(selectedModel?.connected)}
               error={cadError}
               onChange={setCadDraft}
               onAdd={addCadPart}
               onApply={applyCadPart}
               onDownload={downloadSelectedStl}
               onConnect={() => sceneRef.current?.connectTouchingModels()}
+              onDisassemble={disassembleSelected}
               onView={setCameraView}
             />
           ) : workspaceMode === "convert" ? (
@@ -646,6 +659,9 @@ function App() {
               onClick={() => sceneRef.current?.connectTouchingModels()}
             >
               <Combine size={18} />
+            </IconButton>
+            <IconButton label="Disassemble connected object" disabled={!selectedModel?.connected} onClick={disassembleSelected}>
+              <Unlink size={18} />
             </IconButton>
             <IconButton label="Delete" disabled={!selectedModel} onClick={() => sceneRef.current?.deleteSelected()}>
               <Trash2 size={18} />

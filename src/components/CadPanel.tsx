@@ -9,6 +9,7 @@ import {
   Plus,
   RefreshCw,
   Shapes,
+  Unlink,
 } from "lucide-react";
 import type { CadDefinition, CadPrimitiveKind, CameraView } from "../scene/SlicerScene";
 
@@ -47,12 +48,14 @@ interface CadPanelProps {
   selectedIsCad: boolean;
   selectedCanResize: boolean;
   canConnect: boolean;
+  canDisassemble: boolean;
   error: string | null;
   onChange: (definition: CadDefinition) => void;
   onAdd: () => void;
   onApply: () => void;
   onDownload: () => void;
   onConnect: () => void;
+  onDisassemble: () => void;
   onView: (view: CameraView) => void;
 }
 
@@ -61,12 +64,14 @@ export function CadPanel({
   selectedIsCad,
   selectedCanResize,
   canConnect,
+  canDisassemble,
   error,
   onChange,
   onAdd,
   onApply,
   onDownload,
   onConnect,
+  onDisassemble,
   onView,
 }: CadPanelProps) {
   const patch = (next: Partial<CadDefinition>) => onChange({ ...definition, ...next });
@@ -136,6 +141,10 @@ export function CadPanel({
       <button className="cadConnectAction" type="button" disabled={!canConnect} onClick={onConnect}>
         <Combine size={17} />
         Connect touching parts
+      </button>
+      <button className="cadConnectAction" type="button" disabled={!canDisassemble} onClick={onDisassemble}>
+        <Unlink size={17} />
+        Disassemble connected part
       </button>
 
       <div className="cadViews" role="group" aria-label="Camera view">

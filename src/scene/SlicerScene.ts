@@ -58,6 +58,16 @@ interface ModelEntry {
   color: THREE.Color;
   cad?: CadDefinition;
   connected?: boolean;
+  sourceParts?: SourcePart[];
+}
+
+interface SourcePart {
+  name: string;
+  object: THREE.Object3D;
+  color: THREE.Color;
+  cad?: CadDefinition;
+  connected?: boolean;
+  sourceParts?: SourcePart[];
 }
 
 const PLATE = K2_SE_PROFILE.buildVolume;
@@ -422,6 +432,7 @@ export class SlicerScene {
       color,
       cad: entry.cad ? { ...entry.cad } : undefined,
       connected: entry.connected,
+      sourceParts: entry.sourceParts?.map((part) => this.cloneSourcePart(part)),
     });
     this.scene.add(object);
     this.selectModel(id);
@@ -509,6 +520,22 @@ export class SlicerScene {
     object.position.copy(origin);
     object.userData.modelId = id;
 
+    const sourceParts = [...connected].map((entry): SourcePart => {
+      const source = this.cloneObject(entry.object);
+      source.matrix.copy(entry.object.matrixWorld);
+      source.matrix.decompose(source.position, source.quaternion, source.scale);
+      source.position.sub(origin);
+      source.updateMatrixWorld(true);
+      return {
+        name: entry.name,
+        object: source,
+        color: entry.color.clone(),
+        cad: entry.cad ? { ...entry.cad } : undefined,
+        connected: entry.connected,
+        sourceParts: entry.sourceParts?.map((part) => this.cloneSourcePart(part)),
+      };
+    });
+
     for (const entry of connected) {
       this.scene.remove(entry.object);
       this.disposeObject(entry.object);
@@ -522,6 +549,7 @@ export class SlicerScene {
       object,
       color,
       connected: true,
+      sourceParts,
     });
     this.scene.add(object);
     this.selectedId = id;
@@ -529,6 +557,59 @@ export class SlicerScene {
     this.onError(null);
     this.sync();
     return id;
+  }
+
+  disassembleSelected(): string[] {
+    const entry = this.selectedEntry();
+    if (!entry?.connected || !entry.sourceParts?.length) {
+      this.onError("Select a connected CAD assembly to disassemble.");
+      return [];
+    }
+
+    this.transform.detach();
+    entry.object.updateMatrixWorld(true);
+    const restoredIds: string[] = [];
+    const restoredEntries: ModelEntry[] = [];
+
+    for (const part of entry.sourceParts) {
+      const id = crypto.randomUUID();
+      const object = this.cloneObject(part.object);
+      object.updateMatrix();
+      object.applyMatrix4(entry.object.matrixWorld);
+      object.userData.modelId = id;
+      object.traverse((child) => {
+        child.userData.modelId = id;
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          mesh.material = this.createMaterial(this.models.size + restoredEntries.length);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        }
+      });
+      restoredIds.push(id);
+      restoredEntries.push({
+        id,
+        name: part.name,
+        object,
+        color: part.color.clone(),
+        cad: part.cad ? { ...part.cad } : undefined,
+        connected: part.connected,
+        sourceParts: part.sourceParts?.map((source) => this.cloneSourcePart(source)),
+      });
+    }
+
+    this.scene.remove(entry.object);
+    this.disposeObject(entry.object);
+    this.models.delete(entry.id);
+    for (const restored of restoredEntries) {
+      this.models.set(restored.id, restored);
+      this.scene.add(restored.object);
+    }
+    this.selectedId = restoredIds[0] ?? null;
+    if (this.selectedId) this.transform.attach(this.models.get(this.selectedId)!.object);
+    this.onError(null);
+    this.sync();
+    return restoredIds;
   }
 
   deleteSelected(): void {
@@ -1209,6 +1290,30 @@ export class SlicerScene {
 
   private sync(): void {
     this.onChange([...this.models.values()].map((entry) => this.snapshotFor(entry)), this.selectedId);
+  }
+
+  private cloneObject(source: THREE.Object3D): THREE.Object3D {
+    const clone = source.clone(true);
+    clone.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      const mesh = child as THREE.Mesh;
+      mesh.geometry = mesh.geometry.clone();
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map((material) => material.clone())
+        : mesh.material.clone();
+    });
+    return clone;
+  }
+
+  private cloneSourcePart(part: SourcePart): SourcePart {
+    return {
+      name: part.name,
+      object: this.cloneObject(part.object),
+      color: part.color.clone(),
+      cad: part.cad ? { ...part.cad } : undefined,
+      connected: part.connected,
+      sourceParts: part.sourceParts?.map((source) => this.cloneSourcePart(source)),
+    };
   }
 
   private disposeObject(object: THREE.Object3D): void {
