@@ -29,12 +29,12 @@ export function needsTextToMesh(prompt: string): boolean {
 }
 
 export async function generateTextMesh(prompt: string, progress: (message: string) => void): Promise<GeneratedMesh> {
-  progress("Starting real text-to-3D generation");
+  progress("Contacting the text-to-3D service; one automatic retry is enabled");
   let state = await requestGeneration(prompt);
   const deadline = Date.now() + 6 * 60_000;
 
   while (state.status === "pending" && Date.now() < deadline) {
-    progress("Generating detailed mesh; this can take several minutes");
+    progress(`Generation job accepted${state.job ? ` (${state.job.slice(0, 8)})` : ""}; waiting for the mesh`);
     await delay(Math.max(4, state.retry_after ?? 5) * 1000);
     const pollPath = state.poll ?? (state.job ? `/api/3d/studio?job=${encodeURIComponent(state.job)}` : null);
     if (!pollPath) throw new Error("The 3D service returned no job handle.");
@@ -43,7 +43,11 @@ export async function generateTextMesh(prompt: string, progress: (message: strin
 
   if (state.status === "done" && state.glbUrl) {
     progress("Downloading and checking the generated mesh");
-    const response = await proxyFetch(state.glbUrl, { method: "GET" });
+    const response = await withTimeout(
+      proxyFetch(state.glbUrl, { method: "GET" }),
+      90_000,
+      "The generated mesh download timed out after 90 seconds.",
+    );
     if (!response.ok) throw new Error(`The generated mesh could not be downloaded (${response.status}).`);
     const buffer = await response.arrayBuffer();
     if (buffer.byteLength === 0) throw new Error("The 3D service returned an empty mesh.");
@@ -72,13 +76,29 @@ async function requestGeneration(prompt: string): Promise<GenerationState> {
 }
 
 async function requestJson(url: string, init: RequestInit): Promise<GenerationState> {
-  const response = await proxyFetch(url, init);
+  const response = await withTimeout(
+    proxyFetch(url, init),
+    45_000,
+    "The 3D service did not respond within 45 seconds. Check Puter sign-in, then try again.",
+  );
   const data = await response.json().catch(() => ({})) as GenerationState;
   if (!response.ok) {
     if (response.status === 429) throw new Error("The free 3D generation limit was reached. Try again later.");
     throw new Error(data.error ?? data.message ?? `3D service error ${response.status}.`);
   }
   return data;
+}
+
+async function withTimeout<T>(request: Promise<T>, milliseconds: number, message: string): Promise<T> {
+  let timer = 0;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 function proxyFetch(url: string, init: RequestInit): Promise<Response> {
